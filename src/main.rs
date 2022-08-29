@@ -3,12 +3,10 @@ mod manage;
 mod regression;
 mod process;
 mod graph;
-// use daggy::petgraph::dot::{Dot, Config};
 
-use std::collections::VecDeque;
 
 use dvcs::{git::Git, DVCS};
-use regression::{binary_search::BinarySearch, rpa::RPA};
+use regression::rpa::RPA;
 
 use crate::manage::start;
 
@@ -22,8 +20,8 @@ fn main() {
         "20789d338c08157799e3708d770f24ada297aa24".to_string(),
     ];
 
-
-    let g = Git::new("/mnt/i/Tum/22_BT/temp_repos/tournament-scheduler".to_string()).commit_graph().unwrap();
+    let rep = "/mnt/i/Tum/22_BT/temp_repos/tournament-scheduler";
+    let g = Git::commit_graph(rep).unwrap();
     let mut rpa = RPA::new(g, root, leaves);
-    start(&mut rpa, "/mnt/i/Tum/22_BT/temp_repos/tournament-scheduler".to_string(), 1, "/home/matthias/crs_test.sh".to_string());
+    start::<_, Git>(&mut rpa, rep, 3, "/home/matthias/crs_test.sh");
 }

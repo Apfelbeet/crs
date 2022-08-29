@@ -4,25 +4,21 @@ use daggy::{Dag, NodeIndex};
 use std::collections::HashMap;
 use std::process::Command;
 
-use super::run_command_sync;
+use super::{run_command_sync, Worktree};
 
 #[derive(Debug, Clone)]
-pub struct Git {
-    path: String,
-}
-
-impl Git {
-    pub fn new(path: String) -> Self {
-        Self { path }
-    }
-}
+pub struct Git;
 
 impl DVCS for Git {
-    fn commit_graph(&self) -> Result<Radag<String>, ()> {
+    //TODO: Right now when passing a repository as string/path, we assume that
+    //the path is valid. We should check that the path
+    //is valid.  
+    
+    fn commit_graph(repository: &str) -> Result<Radag<String>, ()> {
         let mut command = Command::new("git");
         command.args(["rev-list", "--all", "--parents"]);
 
-        let rev_list = match run_command_sync(&self.path, &mut command) {
+        let rev_list = match run_command_sync(repository, &mut command) {
             Err(err) => {
                 print_error(err.to_string().as_str());
                 Err(())
@@ -43,9 +39,9 @@ impl DVCS for Git {
         return parse_rev_list(rev_list?);
     }
 
-    fn create_worktree(&self, name: &str) -> Result<super::Worktree, ()> {
+    fn create_worktree(repository: &str, name: &str) -> Result<super::Worktree, ()> {
         let location = format!("./.crs/{}", name);
-        let abs_location = format!("{}/.crs/{}", self.path, name);
+        let abs_location = format!("{}/.crs/{}", repository, name);
 
         let mut command = Command::new("git");
 
@@ -61,7 +57,7 @@ impl DVCS for Git {
         //     command.arg("init_commit");
         // }
 
-        return match run_command_sync(&self.path, &mut command) {
+        return match run_command_sync(repository, &mut command) {
             Ok(output) => {
                 if output.status.success() {
                     Ok(super::Worktree {
@@ -80,11 +76,11 @@ impl DVCS for Git {
         };
     }
 
-    fn remove_worktree(&self, worktree: &super::Worktree) -> Result<(), ()> {
+    fn remove_worktree(worktree: &Worktree) -> Result<(), ()> {
         let mut rm_tree = Command::new("git");
         rm_tree.args(["worktree", "remove", worktree.name.as_str()]);
 
-        return match run_command_sync(&self.path, &mut rm_tree) {
+        return match run_command_sync(&worktree.location, &mut rm_tree) {
             Ok(o) => {
                 if o.status.success() {
                     Ok(())
@@ -100,7 +96,7 @@ impl DVCS for Git {
         };
     }
 
-    fn checkout(&self, worktree: &super::Worktree, commit: &str) -> Result<(), ()> {
+    fn checkout(worktree: &Worktree, commit: &str) -> Result<(), ()> {
         let mut command = Command::new("git");
         command.args(["checkout", commit]);
 

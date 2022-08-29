@@ -1,23 +1,28 @@
+use crate::dvcs::DVCS;
 use crate::process::{LocalProcess, ProcessResponse};
 use crate::regression::{RegressionAlgorithm, TestResult};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::mpsc::{self, RecvError, TryRecvError};
 
-struct ProcessPool {
+struct ProcessPool<T> 
+ {
     next_id: u32,
     empty_slots: u32,
-    idle_processes: Vec<LocalProcess>,
-    active_processes: HashMap<u32, LocalProcess>,
+    idle_processes: Vec<LocalProcess<T>>,
+    active_processes: HashMap<u32, LocalProcess<T>>,
+    _marker: PhantomData<T>,
 }
 
-pub fn start<S: RegressionAlgorithm>(core: &mut S, repo: String, threads: u32, script_path: String) {
+pub fn start<S: RegressionAlgorithm, T: DVCS>(core: &mut S, repository: &str, threads: u32, script_path: &str) {
     let (send, recv) = mpsc::channel::<ProcessResponse>();
 
-    let mut pool = ProcessPool {
+    let mut pool = ProcessPool::<T> {
         next_id: 0,
         empty_slots: threads,
         idle_processes: Vec::new(),
         active_processes: HashMap::new(),
+        _marker: PhantomData,
     };
 
     //We assume that there is at least on process available in the first
@@ -26,7 +31,7 @@ pub fn start<S: RegressionAlgorithm>(core: &mut S, repo: String, threads: u32, s
         let mut wait = false;
         match core.next_job(pool.idle_processes.len() as u32 + pool.empty_slots) {
             crate::regression::AlgorithmResponse::Job(commit) => {
-                let process = load_process(&mut pool, repo.to_string());
+                let process = load_process(&mut pool, repository);
                 process.run(commit, send.clone(), script_path.to_string());
             }
             crate::regression::AlgorithmResponse::WaitForResult => {
@@ -82,11 +87,11 @@ pub fn start<S: RegressionAlgorithm>(core: &mut S, repo: String, threads: u32, s
     }
 }
 
-fn load_process(pool: &mut ProcessPool, repo: String) -> &LocalProcess {
+fn load_process<'a, T: DVCS>(pool: &'a mut ProcessPool<T>, repository: &str) -> &'a LocalProcess<T> {
     let available_process = if !pool.idle_processes.is_empty() {
         pool.idle_processes.pop().unwrap()
     } else if pool.empty_slots > 0 {
-        let process = LocalProcess::new(pool.next_id, repo);
+        let process = LocalProcess::new(pool.next_id, repository);
         pool.next_id += 1;
         pool.empty_slots -= 1;
         process
@@ -99,25 +104,25 @@ fn load_process(pool: &mut ProcessPool, repo: String) -> &LocalProcess {
     pool.active_processes.get(&id).unwrap()
 }
 
-fn try_recv_response(
+fn try_recv_response<T: DVCS>(
     recv: &mpsc::Receiver<ProcessResponse>,
-    pool: &mut ProcessPool,
+    pool: &mut ProcessPool<T>,
 ) -> Result<(String, TestResult), TryRecvError> {
     let (id, commit, result) = recv.try_recv()?;
     deactivate_process(id, pool);
     Ok((commit, result))
 }
 
-fn recv_response(
+fn recv_response<T: DVCS>(
     recv: &mpsc::Receiver<ProcessResponse>,
-    pool: &mut ProcessPool,
+    pool: &mut ProcessPool<T>,
 ) -> Result<(String, TestResult), RecvError> {
     let (id, commit, result) = recv.recv()?;
     deactivate_process(id, pool); //FIXME: If the process panics, it will not be deactivated.
     Ok((commit, result))
 }
 
-fn deactivate_process(id: u32, pool: &mut ProcessPool) {
+fn deactivate_process<T: DVCS>(id: u32, pool: &mut ProcessPool<T>) {
     let process = pool
         .active_processes
         .remove(&id)
