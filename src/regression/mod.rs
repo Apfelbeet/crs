@@ -1,4 +1,3 @@
-pub mod iter;
 pub mod rpa;
 pub mod binary_search;
 
