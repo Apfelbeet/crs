@@ -1,18 +1,16 @@
 use crate::process::{LocalProcess, ProcessResponse};
-use crate::regression::iter::Iter;
 use crate::regression::{RegressionAlgorithm, TestResult};
 use std::collections::HashMap;
 use std::sync::mpsc::{self, RecvError, TryRecvError};
 
 struct ProcessPool {
-    next_id: u64,
-    empty_slots: u64,
+    next_id: u32,
+    empty_slots: u32,
     idle_processes: Vec<LocalProcess>,
-    active_processes: HashMap<u64, LocalProcess>,
+    active_processes: HashMap<u32, LocalProcess>,
 }
 
-pub fn start(repo: String, root: String, leaves: Vec<String>, threads: u64) {
-    let mut alg = Iter::new(leaves);
+pub fn start<S: RegressionAlgorithm>(core: &mut S, repo: String, threads: u32, script_path: String) {
     let (send, recv) = mpsc::channel::<ProcessResponse>();
 
     let mut pool = ProcessPool {
@@ -24,12 +22,12 @@ pub fn start(repo: String, root: String, leaves: Vec<String>, threads: u64) {
 
     //We assume that there is at least on process available in the first
     //iteration.
-    while !alg.done() {
+    while !core.done() {
         let mut wait = false;
-        match alg.next_job() {
+        match core.next_job(pool.idle_processes.len() as u32 + pool.empty_slots) {
             crate::regression::AlgorithmResponse::Job(commit) => {
                 let process = load_process(&mut pool, repo.to_string());
-                process.run(commit, send.clone());
+                process.run(commit, send.clone(), script_path.to_string());
             }
             crate::regression::AlgorithmResponse::WaitForResult => {
                 wait = true;
@@ -48,7 +46,7 @@ pub fn start(repo: String, root: String, leaves: Vec<String>, threads: u64) {
         if wait || (pool.idle_processes.is_empty() && pool.empty_slots == 0) {
             println!("Waiting …");
             match recv_response(&recv, &mut pool) {
-                Ok((commit, result)) => alg.add_result(commit, result),
+                Ok((commit, result)) => core.add_result(commit, result),
                 Err(err) => {
                     eprintln!("{}", err);
                     break;
@@ -59,7 +57,7 @@ pub fn start(repo: String, root: String, leaves: Vec<String>, threads: u64) {
 
         loop {
             match try_recv_response(&recv, &mut pool) {
-                Ok((commit, result)) => alg.add_result(commit, result),
+                Ok((commit, result)) => core.add_result(commit, result),
                 Err(err) => match err {
                     TryRecvError::Empty => break,
                     TryRecvError::Disconnected => {
@@ -70,6 +68,8 @@ pub fn start(repo: String, root: String, leaves: Vec<String>, threads: u64) {
             }
         }
     } //END LOOP
+
+    println!("results: {:?}", core.results());
 
     //Wait for active processes to be done and clean up.
     println!("Wait for active processes to finish!");
@@ -117,7 +117,7 @@ fn recv_response(
     Ok((commit, result))
 }
 
-fn deactivate_process(id: u64, pool: &mut ProcessPool) {
+fn deactivate_process(id: u32, pool: &mut ProcessPool) {
     let process = pool
         .active_processes
         .remove(&id)

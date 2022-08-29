@@ -1,7 +1,10 @@
-use crate::dvcs::{DVCSGraph, DVCS};
+use crate::dvcs::DVCS;
+use crate::graph::Radag;
 use daggy::{Dag, NodeIndex};
 use std::collections::HashMap;
-use std::process::{Command, Output};
+use std::process::Command;
+
+use super::run_command_sync;
 
 #[derive(Debug, Clone)]
 pub struct Git {
@@ -15,7 +18,7 @@ impl Git {
 }
 
 impl DVCS for Git {
-    fn commit_graph(&self) -> Result<DVCSGraph, ()> {
+    fn commit_graph(&self) -> Result<Radag<String>, ()> {
         let mut command = Command::new("git");
         command.args(["rev-list", "--all", "--parents"]);
 
@@ -45,13 +48,13 @@ impl DVCS for Git {
         let abs_location = format!("{}/.crs/{}", self.path, name);
 
         let mut command = Command::new("git");
-        
+
         command.args([
             "worktree",
             "add",
             "--detach",
             location.as_str(),
-            "--no-checkout"
+            "--no-checkout",
         ]);
 
         // if init_commit.is_some() {
@@ -60,7 +63,6 @@ impl DVCS for Git {
 
         return match run_command_sync(&self.path, &mut command) {
             Ok(output) => {
-                
                 if output.status.success() {
                     Ok(super::Worktree {
                         location: abs_location,
@@ -70,7 +72,6 @@ impl DVCS for Git {
                     print_error(String::from_utf8(output.stderr).unwrap().as_str());
                     Err(())
                 }
-
             }
             Err(e) => {
                 print_error(e.to_string().as_str());
@@ -81,11 +82,7 @@ impl DVCS for Git {
 
     fn remove_worktree(&self, worktree: &super::Worktree) -> Result<(), ()> {
         let mut rm_tree = Command::new("git");
-        rm_tree.args([
-            "worktree",
-            "remove",
-            worktree.name.as_str(),
-        ]);
+        rm_tree.args(["worktree", "remove", worktree.name.as_str()]);
 
         return match run_command_sync(&self.path, &mut rm_tree) {
             Ok(o) => {
@@ -105,10 +102,7 @@ impl DVCS for Git {
 
     fn checkout(&self, worktree: &super::Worktree, commit: &str) -> Result<(), ()> {
         let mut command = Command::new("git");
-        command.args([
-            "checkout",
-            commit,
-        ]);
+        command.args(["checkout", commit]);
 
         return match run_command_sync(&worktree.location, &mut command) {
             Ok(output) => {
@@ -118,26 +112,20 @@ impl DVCS for Git {
                     print_error(String::from_utf8(output.stderr).unwrap().as_str());
                     Err(())
                 }
-            },
+            }
             Err(e) => {
                 print_error(e.to_string().as_str());
                 Err(())
             }
-        }
-
+        };
     }
-}
-
-fn run_command_sync(location: &String, command: &mut Command) -> std::io::Result<Output> {
-    println!("location: {}", location.as_str());
-    command.current_dir(location.as_str()).output()
 }
 
 fn print_error(msg: &str) {
     eprintln!("Git Error: {}", msg);
 }
 
-fn parse_rev_list(rev_list: String) -> Result<DVCSGraph, ()> {
+fn parse_rev_list(rev_list: String) -> Result<Radag<String>, ()> {
     let mut indexation = HashMap::new();
     let mut graph = Dag::new();
 
@@ -151,21 +139,25 @@ fn parse_rev_list(rev_list: String) -> Result<DVCSGraph, ()> {
         //If the nodes aren't already in the graph they will be added an their
         //index will be returned.
         let index1 = try_add_hash(op_h1, &mut graph, &mut indexation);
-        let index2 = try_add_hash(op_h2, &mut graph, &mut indexation);
+        let mut index2 = try_add_hash(op_h2, &mut graph, &mut indexation);
 
         //We can only create an edge, if both are real nodes.
-        if index1.is_some() && index2.is_some() {
-            if graph
-                .add_edge(index2.unwrap(), index1.unwrap(), ())
-                .is_err()
-            {
-                eprintln!("Error while parsing commit graph from git!");
-                return Err(());
+        if index1.is_some() {
+            while index2.is_some() {
+                if graph
+                    .add_edge(index2.unwrap(), index1.unwrap(), ())
+                    .is_err()
+                {
+                    eprintln!("Error while parsing commit graph from git!");
+                    return Err(());
+                }
+
+                index2 = try_add_hash(hashes.next(), &mut graph, &mut indexation);
             }
         }
     }
 
-    Ok(DVCSGraph { graph, indexation })
+    Ok(Radag { graph, indexation })
 }
 
 fn try_add_hash(
