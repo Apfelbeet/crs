@@ -9,7 +9,8 @@ use daggy::{NodeIndex, Walker};
 use crate::graph::{prune, shortest_path, Radag};
 
 use super::{
-    binary_search::BinarySearch, AssignedRegressionPoint, RegressionAlgorithm, TestResult,
+    binary_search::BinarySearch, AssignedRegressionPoint, RegressionAlgorithm, RegressionPoint,
+    TestResult,
 };
 
 #[derive(Debug, Clone)]
@@ -24,7 +25,7 @@ pub struct RPA {
     shortest_paths: DoublePriorityQueue<(NodeIndex, NodeIndex), u32>,
     remaining_targets: HashSet<NodeIndex>,
     current_search: Option<BinarySearch>,
-    regressions: Vec<AssignedRegressionPoint>,
+    regressions: Vec<RegressionPoint>,
     // job_queue: VecDeque<String>,
 }
 
@@ -35,27 +36,27 @@ impl RPA {
         if pruned.graph.node_count() == 0 {
             panic!("Graph is empty!");
         }
-        
+
         let root_index = pruned
-        .indexation
-        .get(&root)
-        .expect("Node for root hash missing!")
-        .clone();
-        
+            .indexation
+            .get(&root)
+            .expect("Node for root hash missing!")
+            .clone();
+
         let targets_index = HashSet::from_iter(
             targets
-            .iter()
-            .filter_map(|hash| pruned.indexation.get(hash))
-            .map(|reference| reference.clone()),
+                .iter()
+                .filter_map(|hash| pruned.indexation.get(hash))
+                .map(|reference| reference.clone()),
         );
-        
+
         let (annotated, shortest_path) = annotate_graph(
             pruned,
             root_index.clone(),
             &HashSet::from_iter(targets_index.iter().cloned()),
         );
         println!("{:?}", shortest_path);
-        
+
         RPA {
             commits: annotated,
             remaining_targets: targets_index,
@@ -163,7 +164,13 @@ impl RegressionAlgorithm for RPA {
             if search.done() {
                 remove = true;
                 for reg in search.results() {
-                    self.propagate_results(self.commits.indexation[&reg.regression_point]);
+                    //TODO: When getting a candidate, we might be able reuse
+                    //this candidate for some other targets. For that we would
+                    //need to propagate the result down.  
+                    if let RegressionPoint::Point(assigned_point) = reg {
+                        self.propagate_results(self.commits.indexation[&assigned_point.regression_point]);
+                    }
+                    
                 }
             }
         }
@@ -178,7 +185,7 @@ impl RegressionAlgorithm for RPA {
         //start another search.
         if self.current_search.is_none() {
             let mut path_indices = None;
-            
+
             while !self.shortest_paths.is_empty() {
                 let (start, end) = self.shortest_paths.pop_min().unwrap().0;
 
@@ -215,7 +222,7 @@ impl RegressionAlgorithm for RPA {
         self.remaining_targets.is_empty()
     }
 
-    fn results(&self) -> Vec<super::AssignedRegressionPoint> {
+    fn results(&self) -> Vec<RegressionPoint> {
         self.regressions.clone()
     }
 }
@@ -264,13 +271,19 @@ impl RPA {
             if self.remaining_targets.contains(&current) {
                 self.remaining_targets.remove(&current);
                 let target_hash = self.node_from_index_unchecked(&current).hash.to_string();
-                self.regressions.push(AssignedRegressionPoint {
-                    target: target_hash,
-                    regression_point: regression_hash.to_string(),
-                });
+                self.regressions
+                    .push(RegressionPoint::Point(AssignedRegressionPoint {
+                        target: target_hash,
+                        regression_point: regression_hash.to_string(),
+                    }));
             }
 
-            for (_, next) in self.commits.graph.children(current).iter(&self.commits.graph) {
+            for (_, next) in self
+                .commits
+                .graph
+                .children(current)
+                .iter(&self.commits.graph)
+            {
                 if !visited.contains(&next) {
                     queue.push_back(next);
                     visited.insert(next);

@@ -131,7 +131,7 @@ pub fn shortest_path<N, E>(graph: &Dag<N, E>, start: NodeIndex, target: NodeInde
 }
 
 
-pub fn center_of_path<S: Clone + Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<S, ()> {
+pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<usize, ()> {
     let mut left_index = None;
     let mut right_index = None;
 
@@ -152,12 +152,8 @@ pub fn center_of_path<S: Clone + Eq>(path: &VecDeque<S>, left: &S, right: &S) ->
     if found {
         let l = min(left_index.unwrap(), right_index.unwrap());
         let r = max(left_index.unwrap(), right_index.unwrap());
-        let middle_index = ((r - l) / 2 ) + l;
-
-        match path.get(middle_index) {
-            Some(mid) => Ok(mid.clone()),
-            None => Err(()),
-        }
+        
+        Ok(r - l + 1)
     } else {
         Err(())
     } 

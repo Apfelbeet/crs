@@ -21,7 +21,8 @@ pub fn run_script_sync(location: &str, script_path: &str) -> std::io::Result<Out
     let mut command = Command::new(script_path);
     command.current_dir(location);
 
-    command.output()
+    let x = command.output();
+    x
 }
 
 pub fn run_command_sync(location: &str, command: &mut Command) -> std::io::Result<Output> {
