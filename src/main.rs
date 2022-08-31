@@ -31,7 +31,6 @@ struct Args {
 fn main() {
 
     let args = Args::parse();
-    println!("{:?}", args);
 
     let repository_path = &args.repository.display().to_string();
     let test_path = &args.test.display().to_string();

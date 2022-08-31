@@ -2,6 +2,14 @@
 name = "crs"
 version = "0.1.0"
 edition = "2021"
+authors = ["Matthias Jugan <matthias.jugan@tum.de>"]
+description = "Concurrent Regression Search (CRS) is a tool for software regression search in version control systems"
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/apfelbeet/crs.git"
+homepage = "https://github.com/apfelbeet/crs"
+keywords = ["cli", "regression-search", "bisect", "software-regression"]
+categories = ["command-line-utilities", "development-tools::debugging"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
