@@ -5,7 +5,7 @@ mod process;
 mod graph;
 
 use dvcs::{git::Git, DVCS};
-use regression::{rpa::RPA, binary_search::BinarySearch};
+use regression::{rpa::{RPA, Settings}, binary_search::BinarySearch};
 
 use crate::manage::start;
 use clap::Parser;
@@ -26,6 +26,9 @@ struct Args {
 
     #[clap(value_parser, last = true)]
     targets: Vec<String>,
+
+    #[clap(long, action)]
+    no_propagate: bool,
 }
 
 fn main() {
@@ -36,6 +39,6 @@ fn main() {
     let test_path = &args.test.display().to_string();
 
     let g = Git::commit_graph(repository_path).unwrap();
-    let mut rpa = RPA::<BinarySearch>::new(g, args.start, args.targets);
+    let mut rpa = RPA::<BinarySearch>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
     start::<_, Git>(&mut rpa, repository_path, args.processes, test_path);
 }

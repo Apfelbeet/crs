@@ -9,9 +9,12 @@ use daggy::{NodeIndex, Walker};
 use crate::graph::{prune, shortest_path, Radag};
 
 use super::{
-    AssignedRegressionPoint, RegressionAlgorithm, RegressionPoint,
-    TestResult, PathAlgorithm,
+    AssignedRegressionPoint, PathAlgorithm, RegressionAlgorithm, RegressionPoint, TestResult,
 };
+
+pub struct Settings {
+    pub propagate: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct RPANode {
@@ -27,10 +30,16 @@ pub struct RPA<S: PathAlgorithm + RegressionAlgorithm> {
     current_search: Option<S>,
     regressions: Vec<RegressionPoint>,
     // job_queue: VecDeque<String>,
+    settings: Settings,
 }
 
 impl<S: PathAlgorithm + RegressionAlgorithm> RPA<S> {
-    pub fn new(dvcs: Radag<String>, root: String, targets: Vec<String>) -> Self {
+    pub fn new(
+        dvcs: Radag<String>,
+        root: String,
+        targets: Vec<String>,
+        settings: Settings,
+    ) -> Self {
         let pruned = prune(&dvcs, &vec![root.to_string()], &targets);
 
         if pruned.graph.node_count() == 0 {
@@ -63,6 +72,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm> RPA<S> {
             shortest_paths: shortest_path,
             current_search: None,
             regressions: vec![],
+            settings,
         }
     }
 }
@@ -166,11 +176,24 @@ impl<S: PathAlgorithm + RegressionAlgorithm> RegressionAlgorithm for RPA<S> {
                 for reg in search.results() {
                     //TODO: When getting a candidate, we might be able reuse
                     //this candidate for some other targets. For that we would
-                    //need to propagate the result down.  
+                    //need to propagate the result down.
                     if let RegressionPoint::Point(assigned_point) = reg {
-                        self.propagate_results(self.commits.indexation[&assigned_point.regression_point]);
+                        if self.settings.propagate {
+                            self.propagate_results(
+                                self.commits.indexation[&assigned_point.regression_point],
+                            );
+                        } else {
+                            self.remaining_targets.remove(
+                                &self
+                                    .commits
+                                    .indexation
+                                    .get(&assigned_point.target)
+                                    .expect("key missing"),
+                            );
+                            self.regressions
+                                .push(RegressionPoint::Point(assigned_point));
+                        }
                     }
-                    
                 }
             }
         }
