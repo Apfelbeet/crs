@@ -5,7 +5,7 @@ mod process;
 mod graph;
 
 use dvcs::{git::Git, DVCS};
-use regression::{rpa::RPA};
+use regression::{rpa::RPA, binary_search::BinarySearch};
 
 use crate::manage::start;
 use clap::Parser;
@@ -36,6 +36,6 @@ fn main() {
     let test_path = &args.test.display().to_string();
 
     let g = Git::commit_graph(repository_path).unwrap();
-    let mut rpa = RPA::new(g, args.start, args.targets);
+    let mut rpa = RPA::<BinarySearch>::new(g, args.start, args.targets);
     start::<_, Git>(&mut rpa, repository_path, args.processes, test_path);
 }

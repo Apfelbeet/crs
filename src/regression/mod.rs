@@ -1,5 +1,8 @@
+use std::collections::VecDeque;
+
 pub mod rpa;
 pub mod binary_search;
+pub mod linear_search;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TestResult {
@@ -38,4 +41,8 @@ pub trait RegressionAlgorithm {
     fn next_job(&mut self, capacity: u32) -> AlgorithmResponse;
     fn done(&self) -> bool;
     fn results(&self) -> Vec<RegressionPoint>;
+}
+
+pub trait PathAlgorithm {
+    fn new(path: VecDeque<String>) -> Self;
 }

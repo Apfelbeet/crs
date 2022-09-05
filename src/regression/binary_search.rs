@@ -2,7 +2,7 @@ use std::collections::{HashSet, VecDeque};
 
 use crate::graph::length_of_path;
 
-use super::{AssignedRegressionPoint, RegressionAlgorithm, RegressionPoint};
+use super::{AssignedRegressionPoint, RegressionAlgorithm, RegressionPoint, PathAlgorithm};
 
 //TODO: Replace String with generics.
 
@@ -23,10 +23,10 @@ struct Step {
     lowest: Option<String>,
 }
 
-impl BinarySearch {
-    pub fn new(path: VecDeque<String>) -> Result<Self, String> {
+impl PathAlgorithm for BinarySearch {
+    fn new(path: VecDeque<String>) -> Self {
         if path.len() <= 1 {
-            return Err("Path is too short for a regression point!".to_string());
+            panic!("Path is too short for a regression point!");
         }
 
         let left = path.front().unwrap().clone();
@@ -44,9 +44,11 @@ impl BinarySearch {
 
         bin.check_done();
 
-        Ok(bin)
+        bin
     }
+}
 
+impl BinarySearch {
     fn check_done(&mut self) {
         let len = length_of_path(&self.path, &self.left, &self.right);
         println!("{} to {} len: {:?}", self.left, self.right, len);

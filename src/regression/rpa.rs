@@ -9,8 +9,8 @@ use daggy::{NodeIndex, Walker};
 use crate::graph::{prune, shortest_path, Radag};
 
 use super::{
-    binary_search::BinarySearch, AssignedRegressionPoint, RegressionAlgorithm, RegressionPoint,
-    TestResult,
+    AssignedRegressionPoint, RegressionAlgorithm, RegressionPoint,
+    TestResult, PathAlgorithm,
 };
 
 #[derive(Debug, Clone)]
@@ -20,16 +20,16 @@ pub struct RPANode {
     // pub distance: u32,
 }
 
-pub struct RPA {
+pub struct RPA<S: PathAlgorithm + RegressionAlgorithm> {
     commits: Radag<RPANode>,
     shortest_paths: DoublePriorityQueue<(NodeIndex, NodeIndex), u32>,
     remaining_targets: HashSet<NodeIndex>,
-    current_search: Option<BinarySearch>,
+    current_search: Option<S>,
     regressions: Vec<RegressionPoint>,
     // job_queue: VecDeque<String>,
 }
 
-impl RPA {
+impl<S: PathAlgorithm + RegressionAlgorithm> RPA<S> {
     pub fn new(dvcs: Radag<String>, root: String, targets: Vec<String>) -> Self {
         let pruned = prune(&dvcs, &vec![root.to_string()], &targets);
 
@@ -137,7 +137,7 @@ fn annotate_graph(
     )
 }
 
-impl RegressionAlgorithm for RPA {
+impl<S: PathAlgorithm + RegressionAlgorithm> RegressionAlgorithm for RPA<S> {
     fn add_result(&mut self, commit_hash: String, result: TestResult) {
         let index = self
             .commits
@@ -209,10 +209,8 @@ impl RegressionAlgorithm for RPA {
                 })
                 .collect::<VecDeque<String>>();
 
-            match BinarySearch::new(path) {
-                Ok(search) => self.current_search = Some(search),
-                Err(err) => panic!("{:?}", err),
-            };
+            let search = S::new(path);
+            self.current_search = Some(search);
         }
 
         self.current_search.as_mut().unwrap().next_job(capacity)
@@ -227,7 +225,7 @@ impl RegressionAlgorithm for RPA {
     }
 }
 
-impl RPA {
+impl<S: PathAlgorithm + RegressionAlgorithm> RPA<S> {
     fn update_paths(&mut self, origin: NodeIndex) {
         //TODO: The origin should never be a target. This is given by the fact
         //that this function will only be called, if the result is true and by
