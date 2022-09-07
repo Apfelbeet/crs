@@ -82,7 +82,6 @@ impl RegressionAlgorithm for LinearSearch {
     }
 
     fn results(&self) -> Vec<super::RegressionPoint> {
-        println!("{:?}", self.regressions);
         let mut res = Vec::new();
         let mut last = None;
         for (k, v) in self.regressions.iter().rev() {

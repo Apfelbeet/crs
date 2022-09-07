@@ -64,7 +64,6 @@ impl<S: PathAlgorithm + RegressionAlgorithm> RPA<S> {
             root_index.clone(),
             &HashSet::from_iter(targets_index.iter().cloned()),
         );
-        println!("{:?}", shortest_path);
 
         RPA {
             commits: annotated,

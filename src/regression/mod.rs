@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 pub mod rpa;
 pub mod binary_search;
 pub mod linear_search;
+pub mod multiplying_search;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TestResult {
