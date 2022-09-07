@@ -29,16 +29,24 @@ struct Args {
 
     #[clap(long, action)]
     no_propagate: bool,
+
+    #[clap(parse(from_os_str), long)]
+    worktree_location: Option<std::path::PathBuf>,
 }
 
 fn main() {
 
     let args = Args::parse();
 
+    let worktree_location = match args.worktree_location {
+        Some(path) => Some(path.display().to_string()),
+        None => None,
+    };
+
     let repository_path = &args.repository.display().to_string();
     let test_path = &args.test.display().to_string();
 
     let g = Git::commit_graph(repository_path).unwrap();
     let mut rpa = RPA::<BinarySearch>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
-    start::<_, Git>(&mut rpa, repository_path, args.processes, test_path);
+    start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
 }

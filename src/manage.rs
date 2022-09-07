@@ -14,7 +14,7 @@ struct ProcessPool<T>
     _marker: PhantomData<T>,
 }
 
-pub fn start<S: RegressionAlgorithm, T: DVCS>(core: &mut S, repository: &str, threads: u32, script_path: &str) {
+pub fn start<S: RegressionAlgorithm, T: DVCS>(core: &mut S, repository: &str, threads: u32, script_path: &str, worktree_location: Option<String>) {
     let (send, recv) = mpsc::channel::<ProcessResponse>();
 
     let mut pool = ProcessPool::<T> {
@@ -31,7 +31,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(core: &mut S, repository: &str, th
         let mut wait = false;
         match core.next_job(pool.idle_processes.len() as u32 + pool.empty_slots) {
             crate::regression::AlgorithmResponse::Job(commit) => {
-                let process = load_process(&mut pool, repository);
+                let process = load_process(&mut pool, repository, worktree_location.clone());
                 process.run(commit, send.clone(), script_path.to_string());
             }
             crate::regression::AlgorithmResponse::WaitForResult => {
@@ -49,7 +49,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(core: &mut S, repository: &str, th
         };
 
         if wait || (pool.idle_processes.is_empty() && pool.empty_slots == 0) {
-            println!("Waiting …");
+            // println!("Waiting …");
             match recv_response(&recv, &mut pool) {
                 Ok((commit, result)) => core.add_result(commit, result),
                 Err(err) => {
@@ -57,7 +57,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(core: &mut S, repository: &str, th
                     break;
                 }
             }
-            println!("Done waiting …");
+            // println!("Done waiting …");
         }
 
         loop {
@@ -87,11 +87,11 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(core: &mut S, repository: &str, th
     }
 }
 
-fn load_process<'a, T: DVCS>(pool: &'a mut ProcessPool<T>, repository: &str) -> &'a LocalProcess<T> {
+fn load_process<'a, T: DVCS>(pool: &'a mut ProcessPool<T>, repository: &str, worktree_location: Option<String>) -> &'a LocalProcess<T> {
     let available_process = if !pool.idle_processes.is_empty() {
         pool.idle_processes.pop().unwrap()
     } else if pool.empty_slots > 0 {
-        let process = LocalProcess::new(pool.next_id, repository);
+        let process = LocalProcess::new(pool.next_id, repository, worktree_location);
         pool.next_id += 1;
         pool.empty_slots -= 1;
         process

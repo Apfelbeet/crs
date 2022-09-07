@@ -39,9 +39,11 @@ impl DVCS for Git {
         return parse_rev_list(rev_list?);
     }
 
-    fn create_worktree(repository: &str, name: &str) -> Result<super::Worktree, ()> {
-        let location = format!("./.crs/{}", name);
-        let abs_location = format!("{}/.crs/{}", repository, name);
+    fn create_worktree(repository: &str, name: &str, external_location: Option<String>) -> Result<super::Worktree, ()> {
+        let location = match external_location {
+            Some(loc) => format!("{}/{}", loc, name),
+            None => format!("{}/.crs/{}", repository, name),
+        };
 
         let mut command = Command::new("git");
 
@@ -49,19 +51,15 @@ impl DVCS for Git {
             "worktree",
             "add",
             "--detach",
-            location.as_str(),
+            &location,
             "--no-checkout",
         ]);
-
-        // if init_commit.is_some() {
-        //     command.arg("init_commit");
-        // }
 
         return match run_command_sync(repository, &mut command) {
             Ok(output) => {
                 if output.status.success() {
                     Ok(super::Worktree {
-                        location: abs_location,
+                        location: location,
                         name: name.to_string(),
                     })
                 } else {
