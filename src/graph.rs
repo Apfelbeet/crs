@@ -1,5 +1,8 @@
 use daggy::{Dag, EdgeIndex, NodeIndex, Walker};
-use std::{collections::{HashMap, VecDeque}, cmp::{min, max}};
+use std::{
+    cmp::{max, min},
+    collections::{HashMap, HashSet, VecDeque},
+};
 
 #[derive(Debug, Clone)]
 pub struct Radag<T> {
@@ -7,12 +10,22 @@ pub struct Radag<T> {
     pub indexation: HashMap<String, NodeIndex>,
 }
 
-enum PruneDirection {
-    Up,
-    Down
+#[derive(Debug, Clone)]
+pub enum KeypointEdge {
+    Keypoint(u32),
+    Normal,
 }
 
-pub fn prune(old_graph: &Radag<String>, roots: &Vec<String>, leaves: &Vec<String>) -> Radag<String> {
+enum PruneDirection {
+    Up,
+    Down,
+}
+
+pub fn prune(
+    old_graph: &Radag<String>,
+    roots: &Vec<String>,
+    leaves: &Vec<String>,
+) -> Radag<String> {
     let top_down = prune_general(old_graph, roots, get_children, PruneDirection::Down);
     let new_graph = prune_general(&top_down, leaves, get_parents, PruneDirection::Up);
 
@@ -58,29 +71,41 @@ where
                 // The node was never visited, thus we have to add it.
                 None => {
                     let child_hash = old_graph
-                    .graph
-                    .node_weight(next_old_index)
-                    .expect("Didn't found node in dvcs graph");
-                    
+                        .graph
+                        .node_weight(next_old_index)
+                        .expect("Didn't found node in dvcs graph");
+
                     let (_, child_new_index) = match direction {
-                        PruneDirection::Up => new_graph.add_parent(new_current_index.clone(), (), child_hash.to_string()),
-                        PruneDirection::Down => new_graph.add_child(new_current_index.clone(), (), child_hash.to_string()),
+                        PruneDirection::Up => new_graph.add_parent(
+                            new_current_index.clone(),
+                            (),
+                            child_hash.to_string(),
+                        ),
+                        PruneDirection::Down => new_graph.add_child(
+                            new_current_index.clone(),
+                            (),
+                            child_hash.to_string(),
+                        ),
                     };
-                    
+
                     queued.insert(next_old_index, child_new_index);
                     visit_stack.push((next_old_index, child_new_index));
                     indexation.insert(child_hash.to_string(), child_new_index);
-                },
+                }
 
                 //We already visited this node. So we don't have to revisit it,
                 //but we need to add an edge from the current node.
                 Some(next_new_index) => {
                     match direction {
-                        PruneDirection::Up => new_graph.add_edge(next_new_index.clone(), new_current_index, ()).expect("Pruning error"),
-                        PruneDirection::Down => new_graph.add_edge(new_current_index, next_new_index.clone(), ()).expect("Pruning error"),
+                        PruneDirection::Up => new_graph
+                            .add_edge(next_new_index.clone(), new_current_index, ())
+                            .expect("Pruning error"),
+                        PruneDirection::Down => new_graph
+                            .add_edge(new_current_index, next_new_index.clone(), ())
+                            .expect("Pruning error"),
                     };
-                },
-            } 
+                }
+            }
         }
     }
 
@@ -98,7 +123,11 @@ fn get_parents(graph: &Dag<String, ()>, node: NodeIndex) -> Vec<(EdgeIndex, Node
     graph.parents(node).iter(graph).collect()
 }
 
-pub fn shortest_path<N, E>(graph: &Dag<N, E>, start: NodeIndex, target: NodeIndex) -> VecDeque<NodeIndex> {
+pub fn shortest_path<N, E>(
+    graph: &Dag<N, E>,
+    start: NodeIndex,
+    target: NodeIndex,
+) -> VecDeque<NodeIndex> {
     let mut queue = VecDeque::new();
     let mut parent = HashMap::new();
 
@@ -130,7 +159,6 @@ pub fn shortest_path<N, E>(graph: &Dag<N, E>, start: NodeIndex, target: NodeInde
     return path;
 }
 
-
 pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<usize, ()> {
     let mut left_index = None;
     let mut right_index = None;
@@ -152,9 +180,92 @@ pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<
     if found {
         let l = min(left_index.unwrap(), right_index.unwrap());
         let r = max(left_index.unwrap(), right_index.unwrap());
-        
+
         Ok(r - l + 1)
     } else {
         Err(())
-    } 
+    }
+}
+
+pub fn generate_keypoint_graph<S: Clone>(
+    graph: &Dag<S, ()>,
+    root: NodeIndex,
+) -> Dag<S, KeypointEdge> {
+    let mut keypoint_graph = graph.filter_map(
+        |_, weight| Some(weight.clone()),
+        |_, _| Some(KeypointEdge::Normal),
+    );
+
+    let mut stack = Vec::<NodeIndex>::new();
+    let mut last_keypoint = HashMap::<NodeIndex, (NodeIndex, u32)>::new();
+    let mut missing_parents = HashMap::<NodeIndex, usize>::new();
+
+    last_keypoint.insert(root, (root, 1));
+    missing_parents.insert(root, 0);
+
+    for (_, child) in keypoint_graph.children(root).iter(&keypoint_graph) {
+        let parent_count = keypoint_graph.parents(child).iter(&keypoint_graph).count();
+        
+        if !missing_parents.contains_key(&child) {
+            missing_parents.insert(child, parent_count - 1);
+        }
+
+        if parent_count - 1 == 0 {
+            stack.push(child);
+        }
+    }
+
+    while !stack.is_empty() {
+        let current = stack.pop().unwrap();
+
+        let children: Vec<(EdgeIndex, NodeIndex)> = keypoint_graph
+            .children(current)
+            .iter(&keypoint_graph)
+            .collect();
+        
+        let children_count = children.len();
+        let parents_count = keypoint_graph.parents(current).iter(&keypoint_graph).count();
+        if children_count == 1 && parents_count == 1 {
+            //We have exactly one parent!
+            let (_, parent) = keypoint_graph
+                .parents(current)
+                .iter(&keypoint_graph)
+                .next()
+                .unwrap();
+            let (parent_keypoint, distance) = last_keypoint.get(&parent).unwrap().clone();
+            last_keypoint.insert(current, (parent_keypoint, distance + 1));
+        } else {
+            let parents: Vec<(EdgeIndex, NodeIndex)> = keypoint_graph
+                .parents(current)
+                .iter(&keypoint_graph)
+                .collect();
+            
+            for (_, parent) in parents {
+                let (parent_keypoint, distance) = last_keypoint.get(&parent).unwrap().clone();
+                keypoint_graph
+                    .add_edge(parent_keypoint, current, KeypointEdge::Keypoint(distance))
+                    .expect("Couldn't add edge to the graph!");
+            }
+            last_keypoint.insert(current, (current, 1));
+        }
+
+        for (_, child) in children {
+            
+            
+            if !missing_parents.contains_key(&child) {
+                let pc = keypoint_graph.parents(child).iter(&keypoint_graph).count();
+                missing_parents.insert(child, pc);
+            }
+
+            let old_value = missing_parents[&child];
+            let new_value = old_value - 1;
+            missing_parents.insert(child, new_value);
+
+            if new_value == 0 {
+                stack.push(child);
+            }
+        }
+    }
+
+    keypoint_graph
 }
