@@ -9,6 +9,7 @@ pub trait DVCS {
     fn create_worktree(repository: &str, name: &str, external_location: Option<String>) -> Result<Worktree, ()>;
     fn remove_worktree(worktree: &Worktree) -> Result<(), ()>;
     fn checkout(worktree: &Worktree, commit: &str) -> Result<(), ()>;
+    fn get_commit_info(repository: &str, commit: &str) -> Option<String>;
 }
 
 #[derive(Debug, Clone)]

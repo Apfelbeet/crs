@@ -113,6 +113,35 @@ impl DVCS for Git {
             }
         };
     }
+
+    fn get_commit_info(repository: &str, commit: &str) -> Option<String> {
+        let mut command = Command::new("git");
+        command.args(["log", "--pretty=reference", "-n", "1", commit]);
+
+        match run_command_sync(repository, &mut command) {
+            Ok(output) => {
+                if output.status.success() {
+                    match String::from_utf8(output.stdout) {
+                        Ok(message) => Some(message),
+                        Err(err) => {
+                            eprintln!("couldn't parse response for commit informations ({}) from git {:?}", commit, err);
+                            None
+                        },
+                    }
+                } else {
+                    match String::from_utf8(output.stderr) {
+                        Ok(message) => eprintln!("git panicked while fetching commit information ({}): {}", commit, message),
+                        Err(_) => eprintln!("git panicked while fetching commit information ({})", commit),
+                    };
+                    None
+                }
+            },
+            Err(err) => {
+                eprintln!("couldn't fetch commit information ({}) from git: {:?}", commit, err);
+                None
+            },
+        }
+    }
 }
 
 fn print_error(msg: &str) {
