@@ -232,6 +232,11 @@ impl<S: PathAlgorithm + RegressionAlgorithm> RegressionAlgorithm for RPA<S> {
                 .collect::<VecDeque<String>>();
 
             let search = S::new(path);
+            println!(
+                "RPA - Algorithm:\npicked new path\n{:?} to {:?}\n----\n",
+                self.commits.graph.node_weight(start).unwrap().hash,
+                self.commits.graph.node_weight(end).unwrap().hash
+            );
             self.current_search = Some(search);
         }
 

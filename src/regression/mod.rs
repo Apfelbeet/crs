@@ -26,8 +26,8 @@ pub enum RegressionPoint {
 
 #[derive(Debug, Clone)]
 pub struct AssignedRegressionPoint {
-    target: String,
-    regression_point: String,
+    pub target: String,
+    pub regression_point: String,
 }
 
 #[derive(Debug, Clone)]

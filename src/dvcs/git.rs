@@ -124,7 +124,7 @@ impl DVCS for Git {
                     match String::from_utf8(output.stdout) {
                         Ok(message) => Some(message),
                         Err(err) => {
-                            eprintln!("couldn't parse response for commit informations ({}) from git {:?}", commit, err);
+                            eprintln!("couldn't parse response for commit information ({}) from git {:#?}", commit, err);
                             None
                         },
                     }
@@ -137,7 +137,7 @@ impl DVCS for Git {
                 }
             },
             Err(err) => {
-                eprintln!("couldn't fetch commit information ({}) from git: {:?}", commit, err);
+                eprintln!("couldn't fetch commit information ({}) from git: {:#?}", commit, err);
                 None
             },
         }

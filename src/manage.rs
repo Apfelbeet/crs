@@ -1,6 +1,6 @@
 use crate::dvcs::DVCS;
 use crate::process::{LocalProcess, ProcessResponse};
-use crate::regression::{RegressionAlgorithm, TestResult};
+use crate::regression::{RegressionAlgorithm, TestResult, RegressionPoint, AssignedRegressionPoint};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::mpsc::{self, RecvError, TryRecvError};
@@ -74,16 +74,41 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(core: &mut S, repository: &str, th
         }
     } //END LOOP
 
-    println!("results: {:?}", core.results());
-
+   
     //Wait for active processes to be done and clean up.
     println!("Wait for active processes to finish!");
     while !pool.active_processes.is_empty() {
         recv_response(&recv, &mut pool).expect("Process crashed!");
     }
-
     for process in pool.idle_processes {
         process.clean_up();
+    }
+
+    let results = core.results();
+    let points: Vec<&AssignedRegressionPoint> = results.iter().filter_map(|reg| {
+        if let RegressionPoint::Point(point) = reg {
+            Some(point)
+        } else {
+            None
+        }
+    }).collect();
+
+    println!("----\n");
+    match points.len() {
+        0 => println!("No regression point was found!"),
+        1 => println!("1 regression point was found!"),
+        _ => println!("{} regression points were found!\n", points.len()),
+    }
+
+    println!("\ntarget, regression point");
+    for point in points {
+        println!("\n----\n");
+        println!("Target: {}", point.target);
+        println!("Regression Point: {}", point.regression_point);
+        if let Some(message) = T::get_commit_info(repository, &point.regression_point) {
+            println!("{}", message);
+        }
+        println!("----\n");
     }
 }
 
