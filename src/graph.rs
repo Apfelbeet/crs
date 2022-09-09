@@ -1,8 +1,9 @@
-use daggy::{Dag, EdgeIndex, NodeIndex, Walker};
+use daggy::{petgraph::graph, Dag, EdgeIndex, NodeIndex, Walker};
 use std::{
     cmp::{max, min},
     collections::{HashMap, HashSet, VecDeque},
 };
+use std::hash::Hash;
 
 #[derive(Debug, Clone)]
 pub struct Radag<N, E> {
@@ -11,11 +12,7 @@ pub struct Radag<N, E> {
     pub indexation: HashMap<String, NodeIndex>,
 }
 
-#[derive(Debug, Clone)]
-pub enum KeypointEdge {
-    Keypoint(u32),
-    Normal,
-}
+type KeypointEdge = u32;
 
 #[derive(Debug, Clone, PartialEq)]
 enum PruneDirection {
@@ -56,7 +53,7 @@ where
     //one root.
     //
     //A valid case would be all origin nodes are children of one origin node.
-    //But this case is annoying to check and right now it's not relevant.  
+    //But this case is annoying to check and right now it's not relevant.
     if direction == PruneDirection::Down && origin_nodes.len() > 1 {
         panic!("Can not prune rooted dag from top to bottom with more than one origins!");
     }
@@ -87,7 +84,6 @@ where
 
         let next_nodes = func_next(&old_graph.graph, old_current_index);
         for (edge_to_next, next_old_index) in next_nodes {
-            
             let edge = old_graph
                 .graph
                 .edge_weight(edge_to_next)
@@ -212,40 +208,64 @@ pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<
     }
 }
 
-pub fn generate_keypoint_graph<S: Clone>(
-    graph: &Dag<S, ()>,
-    root: NodeIndex,
+/// Generates a rooted keypoint graph from a given rooted graph.
+///
+/// A keypoint graph merges all nodes that are not a fork or a merge. In other
+/// words, every node that has exactly one parent and one child. Additionally it
+/// keeps all nodes in the preserve set.
+///
+/// The weights of a edges is the length of the path in the original graph.
+///
+/// The keypoint graph keeps the indexation of the original graph for all nodes,
+/// that still exist afterwards.
+pub fn generate_keypoint_graph<N: Clone, E>(
+    radag: &Radag<N, E>,
     preserve: HashSet<NodeIndex>,
-) -> Dag<S, KeypointEdge> {
-    let mut keypoint_graph = graph.filter_map(
-        |_, weight| Some(weight.clone()),
-        |_, _| Some(KeypointEdge::Normal),
-    );
+) -> Radag<N, KeypointEdge> {
+    //Indices ending with _o/_n are for the old/new graph, respectively.
 
+    // Clone the original graph without the edges.
+    let mut keypoint_graph = Dag::<N, KeypointEdge>::new();
+    let mut indexation_n = HashMap::<String, NodeIndex>::new();
+    let reversed_indexation_o = reverse_hash_map(&radag.indexation);
+    let root_index_o = radag
+        .indexation
+        .get(&radag.root)
+        .expect("Passed graph is invalid!")
+        .clone();
+
+    // Performing topological sort, while identifying keypoints and add edges
+    // between those.
     let mut stack = Vec::<NodeIndex>::new();
     let mut last_keypoint = HashMap::<NodeIndex, (NodeIndex, u32)>::new();
     let mut missing_parents = HashMap::<NodeIndex, usize>::new();
 
-    last_keypoint.insert(root, (root, 1));
-    missing_parents.insert(root, 0);
+    let root_index_n =
+        keypoint_graph.add_node(radag.graph.node_weight(root_index_o).unwrap().clone());
+    indexation_n.insert(radag.root.clone(), root_index_n);
+    last_keypoint.insert(root_index_o, (root_index_n, 1));
+    missing_parents.insert(root_index_o, 0);
 
-    for (_, child) in keypoint_graph.children(root).iter(&keypoint_graph) {
-        let parent_count = keypoint_graph.parents(child).iter(&keypoint_graph).count();
+    for (_, child_o) in radag.graph.children(root_index_o).iter(&radag.graph) {
+        let parent_count = radag.graph.parents(child_o).iter(&radag.graph).count();
 
-        if !missing_parents.contains_key(&child) {
-            missing_parents.insert(child, parent_count - 1);
+        //The node hasn't been visited yet.
+        // - add amount of unvisited parents
+        if !missing_parents.contains_key(&child_o) {
+            missing_parents.insert(child_o, parent_count - 1);
         }
 
         if parent_count - 1 == 0 {
-            stack.push(child);
+            stack.push(child_o);
         }
     }
 
     while !stack.is_empty() {
-        let current = stack.pop().unwrap();
-        let children = keypoint_graph
-            .children(current)
-            .iter(&keypoint_graph)
+        let current_o = stack.pop().unwrap();
+        let children_o = radag
+            .graph
+            .children(current_o)
+            .iter(&radag.graph)
             .collect::<Vec<_>>();
 
         //If the current node has exactly one parent and one child (and is also
@@ -253,18 +273,16 @@ pub fn generate_keypoint_graph<S: Clone>(
         // - Don't add it to the new graph
         // - Reference last keypoint as the last keypoint of the parent.
         // - Increase distance by 1
-        let children_count = children.len();
-        let parents_count = keypoint_graph
-            .parents(current)
-            .iter(&keypoint_graph)
-            .count();
+        let children_count = children_o.len();
+        let parents_count = radag.graph.parents(current_o).iter(&radag.graph).count();
 
-        if children_count == 1 && parents_count == 1 && !preserve.contains(&current) {
+        if children_count == 1 && parents_count == 1 && !preserve.contains(&current_o) {
             //UNWRAP: We only enter this branch if we have exactly one parent
             //node.
-            let (_, parent) = keypoint_graph
-                .parents(current)
-                .iter(&keypoint_graph)
+            let (_, parent) = radag
+                .graph
+                .parents(current_o)
+                .iter(&radag.graph)
                 .next()
                 .unwrap();
 
@@ -273,40 +291,45 @@ pub fn generate_keypoint_graph<S: Clone>(
             //parent -> last_keypoint has a value for &parent.
             let (parent_keypoint, distance) = last_keypoint[&parent].clone();
 
-            last_keypoint.insert(current, (parent_keypoint, distance + 1));
+            last_keypoint.insert(current_o, (parent_keypoint, distance + 1));
         }
         //keypoint:
         //Otherwise the current node is a keypoint:
-        // - Add a edge to the keypoint of each parent. Although two parents
-        //   might have the same parent. They are representing different path.
-        //   Therefore we want both to be added.
+        // - Add this node to the new graph.
+        // - Add a edge to the last keypoint of each parent.
         // - Reference the current node as its own keypoint.
+        // - Add mapping from the old index to the new index.
         else {
-            let parents = keypoint_graph
-                .parents(current)
-                .iter(&keypoint_graph)
-                .collect::<Vec<_>>();
+            let weight = radag.graph.node_weight(current_o).unwrap().clone();
+            let hash = reversed_indexation_o.get(&current_o).unwrap().clone();
+            let current_n = keypoint_graph.add_node(weight);
+            indexation_n.insert(hash, current_n);
 
+            let parents = radag
+                .graph
+                .parents(current_o)
+                .iter(&radag.graph)
+                .collect::<Vec<_>>();
             for (_, parent) in parents {
                 //DIRECT ACCESS: Every time we visit a node, we reference a node in
                 //last_keypoint. A node can only be queue, if it has no unvisited
                 //parent -> last_keypoint has a value for &parent.
-                let (parent_keypoint, distance) = last_keypoint[&parent].clone();
+                let (parent_keypoint_n, distance) = last_keypoint[&parent].clone();
                 keypoint_graph
-                    .add_edge(parent_keypoint, current, KeypointEdge::Keypoint(distance))
+                    .add_edge(parent_keypoint_n, current_n, distance)
                     .expect("Couldn't add edge to the graph!");
             }
 
-            last_keypoint.insert(current, (current, 1));
+            last_keypoint.insert(current_o, (current_n, 1));
         }
 
         //Queue children
         // - Decrease number of unvisited parents of child by 1.
         // - If every parent of the child was visited, we push it onto the
         //   stack.
-        for (_, child) in children {
+        for (_, child) in children_o {
             if !missing_parents.contains_key(&child) {
-                let pc = keypoint_graph.parents(child).iter(&keypoint_graph).count();
+                let pc = radag.graph.parents(child).iter(&radag.graph).count();
                 missing_parents.insert(child, pc);
             }
 
@@ -320,5 +343,13 @@ pub fn generate_keypoint_graph<S: Clone>(
         }
     }
 
-    keypoint_graph
+    Radag {
+        graph: keypoint_graph,
+        root: radag.root.clone(),
+        indexation: indexation_n,
+    }
+}
+
+fn reverse_hash_map<A: Clone, B: Clone + Eq + Hash>(indexation: &HashMap<A, B>) -> HashMap<B, A> {
+    indexation.into_iter().map(|(k,v)| (v.clone(), k.clone())).collect()
 }
