@@ -190,6 +190,7 @@ pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<
 pub fn generate_keypoint_graph<S: Clone>(
     graph: &Dag<S, ()>,
     root: NodeIndex,
+    preserve: HashSet<NodeIndex>,
 ) -> Dag<S, KeypointEdge> {
     let mut keypoint_graph = graph.filter_map(
         |_, weight| Some(weight.clone()),
@@ -205,7 +206,7 @@ pub fn generate_keypoint_graph<S: Clone>(
 
     for (_, child) in keypoint_graph.children(root).iter(&keypoint_graph) {
         let parent_count = keypoint_graph.parents(child).iter(&keypoint_graph).count();
-        
+
         if !missing_parents.contains_key(&child) {
             missing_parents.insert(child, parent_count - 1);
         }
@@ -217,41 +218,70 @@ pub fn generate_keypoint_graph<S: Clone>(
 
     while !stack.is_empty() {
         let current = stack.pop().unwrap();
-
-        let children: Vec<(EdgeIndex, NodeIndex)> = keypoint_graph
+        let children = keypoint_graph
             .children(current)
             .iter(&keypoint_graph)
-            .collect();
-        
+            .collect::<Vec<_>>();
+
+        //If the current node has exactly one parent and one child (and is also
+        //not on the preserve list), then it isn't a keypoint:
+        // - Don't add it to the new graph
+        // - Reference last keypoint as the last keypoint of the parent.
+        // - Increase distance by 1
         let children_count = children.len();
-        let parents_count = keypoint_graph.parents(current).iter(&keypoint_graph).count();
-        if children_count == 1 && parents_count == 1 {
-            //We have exactly one parent!
+        let parents_count = keypoint_graph
+            .parents(current)
+            .iter(&keypoint_graph)
+            .count();
+
+        if children_count == 1 && parents_count == 1 && !preserve.contains(&current) {
+            //UNWRAP: We only enter this branch if we have exactly one parent
+            //node.
             let (_, parent) = keypoint_graph
                 .parents(current)
                 .iter(&keypoint_graph)
                 .next()
                 .unwrap();
-            let (parent_keypoint, distance) = last_keypoint.get(&parent).unwrap().clone();
+
+            //DIRECT ACCESS: Every time we visit a node, we reference a node in
+            //last_keypoint. A node can only be queue, if it has no unvisited
+            //parent -> last_keypoint has a value for &parent.  
+            let (parent_keypoint, distance) = last_keypoint[&parent].clone();
+
             last_keypoint.insert(current, (parent_keypoint, distance + 1));
-        } else {
-            let parents: Vec<(EdgeIndex, NodeIndex)> = keypoint_graph
+        }
+
+        //keypoint:
+        //Otherwise the current node is a keypoint:
+        // - Add a edge to the keypoint of each parent. Although two parents
+        //   might have the same parent. They are representing different path.
+        //   Therefore we want both to be added.
+        // - Reference the current node as its own keypoint.
+        else {
+            let parents = keypoint_graph
                 .parents(current)
                 .iter(&keypoint_graph)
-                .collect();
-            
+                .collect::<Vec<_>>();
+
             for (_, parent) in parents {
-                let (parent_keypoint, distance) = last_keypoint.get(&parent).unwrap().clone();
+
+                //DIRECT ACCESS: Every time we visit a node, we reference a node in
+                //last_keypoint. A node can only be queue, if it has no unvisited
+                //parent -> last_keypoint has a value for &parent.
+                let (parent_keypoint, distance) = last_keypoint[&parent].clone();
                 keypoint_graph
                     .add_edge(parent_keypoint, current, KeypointEdge::Keypoint(distance))
                     .expect("Couldn't add edge to the graph!");
             }
+
             last_keypoint.insert(current, (current, 1));
         }
 
+        //Queue children
+        // - Decrease number of unvisited parents of child by 1. 
+        // - If every parent of the child was visited, we push it onto the
+        //   stack.
         for (_, child) in children {
-            
-            
             if !missing_parents.contains_key(&child) {
                 let pc = keypoint_graph.parents(child).iter(&keypoint_graph).count();
                 missing_parents.insert(child, pc);
