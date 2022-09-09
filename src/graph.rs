@@ -5,8 +5,9 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-pub struct Radag<T> {
-    pub graph: Dag<T, ()>,
+pub struct Radag<N, E> {
+    pub root: String,
+    pub graph: Dag<N, E>,
     pub indexation: HashMap<String, NodeIndex>,
 }
 
@@ -16,32 +17,51 @@ pub enum KeypointEdge {
     Normal,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 enum PruneDirection {
     Up,
     Down,
 }
 
-pub fn prune(
-    old_graph: &Radag<String>,
+pub fn prune<E: Clone>(
+    old_graph: &Radag<String, E>,
     roots: &Vec<String>,
     leaves: &Vec<String>,
-) -> Radag<String> {
+) -> Radag<String, E> {
     let top_down = prune_general(old_graph, roots, get_children, PruneDirection::Down);
     let new_graph = prune_general(&top_down, leaves, get_parents, PruneDirection::Up);
 
     new_graph
 }
 
-fn prune_general<F>(
-    old_graph: &Radag<String>,
+fn get_children<E>(graph: &Dag<String, E>, node: NodeIndex) -> Vec<(EdgeIndex, NodeIndex)> {
+    graph.children(node).iter(graph).collect()
+}
+
+fn get_parents<E>(graph: &Dag<String, E>, node: NodeIndex) -> Vec<(EdgeIndex, NodeIndex)> {
+    graph.parents(node).iter(graph).collect()
+}
+
+fn prune_general<F, E: Clone>(
+    old_graph: &Radag<String, E>,
     origin_nodes: &Vec<String>,
     func_next: F,
     direction: PruneDirection,
-) -> Radag<String>
+) -> Radag<String, E>
 where
-    F: Fn(&Dag<String, ()>, NodeIndex) -> Vec<(EdgeIndex, NodeIndex)>,
+    F: Fn(&Dag<String, E>, NodeIndex) -> Vec<(EdgeIndex, NodeIndex)>,
 {
-    let mut new_graph = Dag::<String, ()>::new();
+    //If we have more than one origin node for the DAG and we're pruning from
+    //top to bottom, then we can not longer ensure that the resulting graph has
+    //one root.
+    //
+    //A valid case would be all origin nodes are children of one origin node.
+    //But this case is annoying to check and right now it's not relevant.  
+    if direction == PruneDirection::Down && origin_nodes.len() > 1 {
+        panic!("Can not prune rooted dag from top to bottom with more than one origins!");
+    }
+
+    let mut new_graph = Dag::<String, E>::new();
     let mut indexation = HashMap::<String, NodeIndex>::new();
     let mut queued = HashMap::<NodeIndex, NodeIndex>::new();
     let mut visit_stack = Vec::<(NodeIndex, NodeIndex)>::new();
@@ -66,7 +86,13 @@ where
         let (old_current_index, new_current_index) = visit_stack.pop().unwrap();
 
         let next_nodes = func_next(&old_graph.graph, old_current_index);
-        for (_, next_old_index) in next_nodes {
+        for (edge_to_next, next_old_index) in next_nodes {
+            
+            let edge = old_graph
+                .graph
+                .edge_weight(edge_to_next)
+                .expect("Didn't found edge in dvcs graph!");
+
             match queued.get(&next_old_index) {
                 // The node was never visited, thus we have to add it.
                 None => {
@@ -78,12 +104,12 @@ where
                     let (_, child_new_index) = match direction {
                         PruneDirection::Up => new_graph.add_parent(
                             new_current_index.clone(),
-                            (),
+                            edge.clone(),
                             child_hash.to_string(),
                         ),
                         PruneDirection::Down => new_graph.add_child(
                             new_current_index.clone(),
-                            (),
+                            edge.clone(),
                             child_hash.to_string(),
                         ),
                     };
@@ -98,10 +124,10 @@ where
                 Some(next_new_index) => {
                     match direction {
                         PruneDirection::Up => new_graph
-                            .add_edge(next_new_index.clone(), new_current_index, ())
+                            .add_edge(next_new_index.clone(), new_current_index, edge.clone())
                             .expect("Pruning error"),
                         PruneDirection::Down => new_graph
-                            .add_edge(new_current_index, next_new_index.clone(), ())
+                            .add_edge(new_current_index, next_new_index.clone(), edge.clone())
                             .expect("Pruning error"),
                     };
                 }
@@ -109,18 +135,17 @@ where
         }
     }
 
+    let root = if direction == PruneDirection::Down {
+        origin_nodes.first().unwrap().clone()
+    } else {
+        old_graph.root.clone()
+    };
+
     Radag {
+        root,
         graph: new_graph,
         indexation,
     }
-}
-
-fn get_children(graph: &Dag<String, ()>, node: NodeIndex) -> Vec<(EdgeIndex, NodeIndex)> {
-    graph.children(node).iter(graph).collect()
-}
-
-fn get_parents(graph: &Dag<String, ()>, node: NodeIndex) -> Vec<(EdgeIndex, NodeIndex)> {
-    graph.parents(node).iter(graph).collect()
 }
 
 pub fn shortest_path<N, E>(
@@ -245,12 +270,11 @@ pub fn generate_keypoint_graph<S: Clone>(
 
             //DIRECT ACCESS: Every time we visit a node, we reference a node in
             //last_keypoint. A node can only be queue, if it has no unvisited
-            //parent -> last_keypoint has a value for &parent.  
+            //parent -> last_keypoint has a value for &parent.
             let (parent_keypoint, distance) = last_keypoint[&parent].clone();
 
             last_keypoint.insert(current, (parent_keypoint, distance + 1));
         }
-
         //keypoint:
         //Otherwise the current node is a keypoint:
         // - Add a edge to the keypoint of each parent. Although two parents
@@ -264,7 +288,6 @@ pub fn generate_keypoint_graph<S: Clone>(
                 .collect::<Vec<_>>();
 
             for (_, parent) in parents {
-
                 //DIRECT ACCESS: Every time we visit a node, we reference a node in
                 //last_keypoint. A node can only be queue, if it has no unvisited
                 //parent -> last_keypoint has a value for &parent.
@@ -278,7 +301,7 @@ pub fn generate_keypoint_graph<S: Clone>(
         }
 
         //Queue children
-        // - Decrease number of unvisited parents of child by 1. 
+        // - Decrease number of unvisited parents of child by 1.
         // - If every parent of the child was visited, we push it onto the
         //   stack.
         for (_, child) in children {

@@ -23,19 +23,18 @@ pub struct RPANode {
     // pub distance: u32,
 }
 
-pub struct RPA<S: PathAlgorithm + RegressionAlgorithm> {
-    commits: Radag<RPANode>,
+pub struct RPA<S: PathAlgorithm + RegressionAlgorithm, E> {
+    commits: Radag<RPANode, E>,
     shortest_paths: DoublePriorityQueue<(NodeIndex, NodeIndex), u32>,
     remaining_targets: HashSet<NodeIndex>,
     current_search: Option<S>,
     regressions: Vec<RegressionPoint>,
-    // job_queue: VecDeque<String>,
     settings: Settings,
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm> RPA<S> {
+impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone > RPA<S, E> {
     pub fn new(
-        dvcs: Radag<String>,
+        dvcs: Radag<String, E>,
         root: String,
         targets: Vec<String>,
         settings: Settings,
@@ -76,12 +75,12 @@ impl<S: PathAlgorithm + RegressionAlgorithm> RPA<S> {
     }
 }
 
-fn annotate_graph(
-    dvcs: Radag<String>,
+fn annotate_graph<E: Clone>(
+    dvcs: Radag<String, E>,
     root: NodeIndex,
     targets: &HashSet<NodeIndex>,
 ) -> (
-    Radag<RPANode>,
+    Radag<RPANode, E>,
     DoublePriorityQueue<(NodeIndex, NodeIndex), u32>,
 ) {
     let mut shortest_path = DoublePriorityQueue::new();
@@ -129,16 +128,13 @@ fn annotate_graph(
                 None
             },
             hash: node.to_string(),
-            // distance: distance
-            //     .get(&index)
-            //     .expect("Missing distance for node. Graph might have unconnected parts!")
-            //     .clone(),
         },
-        |_, _| (),
+        |_, edge| edge.clone(),
     );
 
     (
         Radag {
+            root: dvcs.root,
             graph: mapped,
             indexation: dvcs.indexation,
         },
@@ -146,7 +142,7 @@ fn annotate_graph(
     )
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm> RegressionAlgorithm for RPA<S> {
+impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E> {
     fn add_result(&mut self, commit_hash: String, result: TestResult) {
         let index = self
             .commits
@@ -252,7 +248,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm> RegressionAlgorithm for RPA<S> {
     }
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm> RPA<S> {
+impl<S: PathAlgorithm + RegressionAlgorithm, E> RPA<S,E> {
     fn update_paths(&mut self, origin: NodeIndex) {
         //TODO: The origin should never be a target. This is given by the fact
         //that this function will only be called, if the result is true and by

@@ -14,7 +14,7 @@ impl DVCS for Git {
     //the path is valid. We should check that the path
     //is valid.  
     
-    fn commit_graph(repository: &str) -> Result<Radag<String>, ()> {
+    fn commit_graph(repository: &str) -> Result<Radag<String, ()>, ()> {
         let mut command = Command::new("git");
         command.args(["rev-list", "--all", "--parents"]);
 
@@ -148,9 +148,10 @@ fn print_error(msg: &str) {
     eprintln!("Git Error: {}", msg);
 }
 
-fn parse_rev_list(rev_list: String) -> Result<Radag<String>, ()> {
+fn parse_rev_list(rev_list: String) -> Result<Radag<String, ()>, ()> {
     let mut indexation = HashMap::new();
     let mut graph = Dag::new();
+    let mut root = None;
 
     let lines = rev_list.lines();
 
@@ -163,6 +164,11 @@ fn parse_rev_list(rev_list: String) -> Result<Radag<String>, ()> {
         //index will be returned.
         let index1 = try_add_hash(op_h1, &mut graph, &mut indexation);
         let mut index2 = try_add_hash(op_h2, &mut graph, &mut indexation);
+
+        //A line with only one entry represents the root of the graph.
+        if index2.is_none() {
+            root = index1;
+        }
 
         //We can only create an edge, if both are real nodes.
         if index1.is_some() {
@@ -180,7 +186,15 @@ fn parse_rev_list(rev_list: String) -> Result<Radag<String>, ()> {
         }
     }
 
-    Ok(Radag { graph, indexation })
+    match root {
+        Some(index) => {
+            match graph.node_weight(index) {
+                Some(r) => Ok(Radag { root: r.to_string(), graph, indexation }),
+                None => Err(()),
+            }
+        },
+        None => Err(()),
+    }
 }
 
 fn try_add_hash(

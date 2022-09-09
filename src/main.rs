@@ -47,6 +47,6 @@ fn main() {
     let test_path = &args.test.display().to_string();
 
     let g = Git::commit_graph(repository_path).unwrap();
-    let mut rpa = RPA::<BinarySearch>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
+    let mut rpa = RPA::<BinarySearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
     start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
 }
