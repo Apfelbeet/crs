@@ -5,13 +5,13 @@ mod process;
 mod graph;
 
 use dvcs::{git::Git, DVCS};
-use regression::{rpa::{RPA, Settings}, binary_search::BinarySearch};
+use regression::{rpa::{RPA, Settings}, binary_search::BinarySearch, linear_search::LinearSearch, multiplying_search::MultiplyingSearch};
 
 use crate::manage::start;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[clap(version, about, long_about = None)]
 struct Args {
     #[clap(parse(from_os_str))]
     repository: std::path::PathBuf,
@@ -32,6 +32,9 @@ struct Args {
 
     #[clap(parse(from_os_str), long)]
     worktree_location: Option<std::path::PathBuf>,
+
+    #[clap(long, value_parser, value_name = "MODE", default_value = "rpa-binary")]
+    search_mode: String,
 }
 
 fn main() {
@@ -47,6 +50,24 @@ fn main() {
     let test_path = &args.test.display().to_string();
 
     let g = Git::commit_graph(repository_path).unwrap();
-    let mut rpa = RPA::<BinarySearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
-    start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
+    //TODO: There has to be a nicer way.
+    match args.search_mode.as_str() {
+        "rpa-binary" => {
+            let mut rpa = RPA::<BinarySearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
+            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
+        },
+        "rpa-linear" => {
+            let mut rpa = RPA::<LinearSearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
+            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
+        },
+        "rpa-multi" => {
+            let mut rpa = RPA::<MultiplyingSearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
+            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
+        },
+        &_ => {
+            panic!("Invalid search mode! Pick (rpa-binary, rpa-linear, rpa-multi)");
+        }
+    };
+
+    
 }
