@@ -103,6 +103,7 @@ dependencies = [
  "json",
  "priority-queue",
  "rand",
+ "rand_chacha",
  "regex",
  "statrs",
 ]

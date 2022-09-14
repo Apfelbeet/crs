@@ -10,7 +10,8 @@ use std::{
 
 use daggy::{Dag, Walker};
 use priority_queue::DoublePriorityQueue;
-use rand::distributions::Distribution;
+use rand::{distributions::Distribution, SeedableRng};
+use rand_chacha::ChaCha20Rng;
 use regex::Regex;
 use statrs::distribution::Normal;
 use std::sync::mpsc;
@@ -53,12 +54,16 @@ pub struct NormalDistribution {
 }
 
 impl Benchmark {
-    pub fn reset(graph_file: std::path::PathBuf, time_profile: TimeProfile) {
+    pub fn reset(graph_file: std::path::PathBuf, time_profile: TimeProfile, seed: Option<u64>) {
         let mut bmo = MUTEX_B.lock().unwrap();
         let raw_graph = fs::read_to_string(graph_file).expect("graph file missing!");
 
         let (radag, valid) = parse_dot(&raw_graph);
 
+        let mut r2 = match seed {
+            Some(s) => ChaCha20Rng::seed_from_u64(s),
+            None => ChaCha20Rng::from_entropy(),
+        };
         let mut r = rand::thread_rng();
         let dis_valid = Normal::new(time_profile.valid.mean, time_profile.valid.std_dev).unwrap();
         let dis_invalid =
@@ -66,16 +71,21 @@ impl Benchmark {
 
         let mut l_times = HashMap::<String, Duration>::new();
 
-        for (hash, value) in &valid {
+        for node in radag.graph.raw_nodes() {
+            let hash = node.weight.clone();
+            let value = valid.get(&hash).unwrap();
+
+
             let time_f = if value.clone() {
-                dis_valid.sample(&mut r)
+                dis_valid.sample(&mut r2)
             } else {
-                dis_invalid.sample(&mut r)
+                dis_invalid.sample(&mut r2)
             };
 
             let time = time_f.max(1.0) as u64;
             l_times.insert(hash.clone(), Duration::from_millis(time));
         }
+
 
         let b = BObject {
             times: l_times,
@@ -115,7 +125,7 @@ impl Benchmark {
             };
 
             if wait {
-                std::thread::sleep(Duration::from_secs(1));
+                std::thread::sleep(Duration::from_millis(50));
             } else {
                 break;
             }
@@ -191,6 +201,7 @@ fn parse_dot(dot: &str) -> (Radag<String, ()>, HashMap<String, bool>) {
             "red" => false,
             &_ => panic!("Invalid color!"),
         };
+    
         let index = l_graph.add_node(cap[1].to_string());
         indexation.insert(cap[1].to_string(), index);
         h_valid.insert(cap[1].to_string(), valid);
@@ -218,6 +229,7 @@ fn parse_dot(dot: &str) -> (Radag<String, ()>, HashMap<String, bool>) {
         let root_hash = String::from("<root>");
         let root_index = l_graph.add_node(root_hash.clone());
         indexation.insert(root_hash.clone(), root_index);
+        h_valid.insert(root_hash.clone(), true);
         for r in roots {
             let r_index = indexation.get(&r).unwrap().clone();
             l_graph.add_edge(root_index, r_index, ()).unwrap();

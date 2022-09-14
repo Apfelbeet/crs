@@ -49,7 +49,7 @@ fn main() {
     let targets = parse_targets(args.targets_path);
     
 
-    Benchmark::reset(args.graph_path, time_profile);
+    Benchmark::reset(args.graph_path, time_profile, Some(0));
     
     let g = Benchmark::commit_graph("/mnt/i/Tum/22_BT/implementations/benchmarks/data/data_ace_cleaned.dot").unwrap();
     let root = g.root.clone();
