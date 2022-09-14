@@ -1,4 +1,5 @@
 use crate::dvcs::DVCS;
+use crate::dvcs::benchmark::Benchmark;
 use crate::process::{LocalProcess, ProcessResponse};
 use crate::regression::{
     AssignedRegressionPoint, RegressionAlgorithm, RegressionPoint, TestResult,
@@ -69,6 +70,8 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         };
 
         if wait || (pool.idle_processes.is_empty() && pool.empty_slots == 0) {
+            // BENCHMARK OVERRIDE
+            Benchmark::next();
             match recv_response(&recv, &mut pool) {
                 Ok((commit, result)) => core.add_result(commit, result),
                 Err(err) => {

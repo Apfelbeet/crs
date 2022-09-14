@@ -1,8 +1,11 @@
-use std::process::{Command, Output};
+use std::{process::{Command, Output, ExitStatus}, time::Duration};
 
 use crate::graph::Radag;
 
+use self::benchmark::Benchmark;
+
 pub mod git;
+pub mod benchmark;
 
 pub trait DVCS {
     fn commit_graph(repository: &str) -> Result<Radag<String, ()>, ()>;
@@ -18,12 +21,19 @@ pub struct Worktree {
     pub name: String,
 }
 
-pub fn run_script_sync(location: &str, script_path: &str) -> std::io::Result<Output> {
-    let mut command = Command::new(script_path);
-    command.current_dir(location);
+/**
+ * BENCHMARK OVERRIDE
+ */
+pub fn run_script_sync(location: &str, script_path: &str) -> std::io::Result<i32> {
+    let rec = Benchmark::register_job(location);
 
-    let x = command.output();
-    x
+    let code = if rec.recv().expect("channel closed!") {
+        0
+    } else {
+        -1
+    }; 
+
+    Ok(code)
 }
 
 pub fn run_command_sync(location: &str, command: &mut Command) -> std::io::Result<Output> {

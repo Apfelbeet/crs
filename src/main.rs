@@ -4,70 +4,56 @@ mod regression;
 mod process;
 mod graph;
 
-use dvcs::{git::Git, DVCS};
-use regression::{rpa::{RPA, Settings}, binary_search::BinarySearch, linear_search::LinearSearch, multiplying_search::MultiplyingSearch};
+use dvcs::{DVCS, benchmark::{NormalDistribution, TimeProfile, Benchmark, parse_targets}};
+use regression::{rpa::{RPA, Settings}, binary_search::BinarySearch};
 
 use crate::manage::start;
 use clap::Parser;
 
+/**
+ * BENCHMARK OVERRIDE
+ */
 #[derive(Parser, Debug)]
 #[clap(version, about, long_about = None)]
 struct Args {
     #[clap(parse(from_os_str))]
-    repository: std::path::PathBuf,
+    graph_path: std::path::PathBuf,
     #[clap(parse(from_os_str))]
-    test: std::path::PathBuf,
-
-    #[clap(short, long, value_parser, value_name = "AMOUNT", default_value_t = 1)]
-    processes: u32,
-    
-    #[clap(short, long, value_parser)]
-    start: String,
-
-    #[clap(value_parser, last = true)]
-    targets: Vec<String>,
-
-    #[clap(long, action)]
-    no_propagate: bool,
-
-    #[clap(parse(from_os_str), long)]
-    worktree_location: Option<std::path::PathBuf>,
-
-    #[clap(long, value_parser, value_name = "MODE", default_value = "rpa-binary")]
-    search_mode: String,
+    targets_path: std::path::PathBuf,
+    #[clap(parse(from_os_str))]
+    time_profile: std::path::PathBuf,
 }
 
 fn main() {
 
     let args = Args::parse();
 
-    let worktree_location = match args.worktree_location {
-        Some(path) => Some(path.display().to_string()),
-        None => None,
+    let raw_time_profile = std::fs::read_to_string(args.time_profile).unwrap();
+    let time_profile_json = json::parse(&raw_time_profile).unwrap();
+
+    let dis_good = NormalDistribution {
+        mean: time_profile_json["success_distribution"]["avg"].as_f64().unwrap(),
+        std_dev: time_profile_json["success_distribution"]["std"].as_f64().unwrap(),
     };
 
-    let repository_path = &args.repository.display().to_string();
-    let test_path = &args.test.display().to_string();
-
-    let g = Git::commit_graph(repository_path).unwrap();
-    //TODO: There has to be a nicer way.
-    match args.search_mode.as_str() {
-        "rpa-binary" => {
-            let mut rpa = RPA::<BinarySearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
-            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
-        },
-        "rpa-linear" => {
-            let mut rpa = RPA::<LinearSearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
-            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
-        },
-        "rpa-multi" => {
-            let mut rpa = RPA::<MultiplyingSearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
-            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
-        },
-        &_ => {
-            panic!("Invalid search mode! Pick (rpa-binary, rpa-linear, rpa-multi)");
-        }
+    let dis_bad = NormalDistribution {
+        mean: time_profile_json["failure_distribution"]["avg"].as_f64().unwrap(),
+        std_dev: time_profile_json["failure_distribution"]["std"].as_f64().unwrap(),
     };
 
+    let time_profile = TimeProfile{
+        valid: dis_good,
+        invalid: dis_bad,
+    };
+
+    let targets = parse_targets(args.targets_path);
+    
+
+    Benchmark::reset(args.graph_path, time_profile);
+    
+    let g = Benchmark::commit_graph("/mnt/i/Tum/22_BT/implementations/benchmarks/data/data_ace_cleaned.dot").unwrap();
+    let root = g.root.clone();
+    let mut c = RPA::<BinarySearch, ()>::new(g, root, targets, Settings { propagate: true });
+    start::<_, Benchmark>(&mut c, "", 4, "", None);
     
 }

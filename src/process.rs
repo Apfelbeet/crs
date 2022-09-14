@@ -44,14 +44,12 @@ impl<S: DVCS> LocalProcess<S> {
             }
             
             let result = match run_script_sync(&worktree.location, &script_path) {
-                Ok(output) => match output.status.code() {
-                    Some(code) => if code == 0 {
+                // BENCHMARK OVERRIDE
+                Ok(output) => if output == 0 {
                         TestResult::True
                     } else {
                         TestResult::False
                     },
-                    None => panic!("test case responded weird: {:?}", output),
-                },
                 Err(err) => panic!("test for failed {:?}", err),
             };
 
