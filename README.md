@@ -19,9 +19,9 @@ crs <REPOSITORY> <TEST> [OPTIONS] --start <START>  [-- <TARGETS>...]
 |--processes | -p | Amount of threads that can be spawned. | no | 1 |
 |--worktree-location |  | By default *crs* will spawn all worktrees in a subdirectory of the source repository. You can change that location by specifying another path here.  | no |  |
 |--search-mode |   | *crs* implements multiple search modes. List of supported search modes: rpa-binary, rpa-linear, rpa-multi | no | rpa-binary |
-|--no-propagate |   | Disables propagation of regression points.  | no | rpa-binary |
+|--no-propagate |   | Disables propagation of regression points.  | no | |
 
-The default configuration would look something like:
+The default configuration would look like:
 
 ```sh
 crs <path to repository> <path to script> \
@@ -49,7 +49,7 @@ exit <code>
 
 ### Example
 
-For example, say we are in the directory if the repository and have a test
+For example, say we are in the root directory of the repository and have a test
 `crs_test.sh` in the same directory. And we know that the the 2 week old commit
 `fff777fff777fff777fff777fff777fff777fff7` evaluates to true and the two new 
 commits `eee666eee666eee666eee666eee666eee666eee6`,
