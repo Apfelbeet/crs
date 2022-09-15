@@ -12,6 +12,17 @@ pub struct Radag<N, E> {
     pub indexation: HashMap<String, NodeIndex>,
 }
 
+impl<N: Clone,E> Radag<N, E>  {
+    pub fn get_node(&self, hash: &String) -> N {
+        let index = self.indexation.get(hash).expect(&format!("{} is not a node in the graph!", hash));
+        self.graph.node_weight(index.clone()).expect("Radag seems corrupted!").clone()
+    }
+
+    pub fn get_node_by_index(&self, index: NodeIndex) -> N {
+        self.graph.node_weight(index.clone()).expect("Radag seems corrupted!").clone()
+    }
+}
+
 type KeypointEdge = u32;
 
 #[derive(Debug, Clone, PartialEq)]
