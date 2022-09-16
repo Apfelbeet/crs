@@ -1,7 +1,9 @@
 use crate::dvcs::DVCS;
 use crate::graph::Radag;
 use daggy::{Dag, NodeIndex};
-use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
+use std::{collections::HashMap, hash::Hash};
 use std::process::Command;
 
 use super::{run_command_sync, Worktree};
@@ -40,38 +42,54 @@ impl DVCS for Git {
     }
 
     fn create_worktree(repository: &str, name: &str, external_location: Option<String>) -> Result<super::Worktree, ()> {
-        let location = match external_location {
-            Some(loc) => format!("{}/{}", loc, name),
-            None => format!("{}/.crs/{}", repository, name),
+        let wt_name = match &external_location {
+            Some(loc) => {
+                let mut s = DefaultHasher::new();
+                loc.hash(&mut s);
+                let hash = s.finish().to_string();
+                format!("{}_{}", hash, name)
+            },
+            None => format!("{}", name),
+        };
+        
+        let location = match &external_location {
+            Some(loc) => format!("{}/{}", loc, wt_name),
+            None => format!("{}/.crs/{}", repository, wt_name),
         };
 
-        let mut command = Command::new("git");
+        let worktree = super::Worktree {
+            location: location.clone(),
+            name: wt_name.clone(),
+        };
 
-        command.args([
-            "worktree",
-            "add",
-            "--detach",
-            &location,
-            "--no-checkout",
-        ]);
-
-        return match run_command_sync(repository, &mut command) {
-            Ok(output) => {
-                if output.status.success() {
-                    Ok(super::Worktree {
-                        location: location,
-                        name: name.to_string(),
-                    })
-                } else {
-                    print_error(String::from_utf8(output.stderr).unwrap().as_str());
+        if !worktree_exists(repository, &wt_name) {
+            let mut command = Command::new("git");
+    
+            command.args([
+                "worktree",
+                "add",
+                "--detach",
+                &location,
+                "--no-checkout",
+            ]);
+    
+            match run_command_sync(repository, &mut command) {
+                Ok(output) => {
+                    if output.status.success() {
+                        Ok(worktree)
+                    } else {
+                        print_error(String::from_utf8(output.stderr).unwrap().as_str());
+                        Err(())
+                    }
+                }
+                Err(e) => {
+                    print_error(e.to_string().as_str());
                     Err(())
                 }
             }
-            Err(e) => {
-                print_error(e.to_string().as_str());
-                Err(())
-            }
-        };
+        } else {
+            Ok(worktree)
+        }
     }
 
     fn remove_worktree(worktree: &Worktree) -> Result<(), ()> {
@@ -96,7 +114,7 @@ impl DVCS for Git {
 
     fn checkout(worktree: &Worktree, commit: &str) -> Result<(), ()> {
         let mut command = Command::new("git");
-        command.args(["checkout", commit]);
+        command.args(["checkout", "-f", commit]);
 
         return match run_command_sync(&worktree.location, &mut command) {
             Ok(output) => {
@@ -141,6 +159,30 @@ impl DVCS for Git {
                 None
             },
         }
+    }
+}
+
+fn worktree_exists(location: &str, name: &str) -> bool {
+    let mut command = Command::new("git");
+
+    command.args([
+        "worktree",
+        "list",
+        "--porcelain",
+    ]);
+
+    match run_command_sync(location, &mut command) {
+        Ok(output) => {
+            if output.status.success() {
+                let response = String::from_utf8(output.stdout).unwrap();
+                response.find(name).is_some()
+            } else {
+                panic!("{}", String::from_utf8(output.stderr).unwrap().as_str());
+            }
+        },
+        Err(err) => {
+            panic!("{}", err.to_string().as_str())
+        },
     }
 }
 
