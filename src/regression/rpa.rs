@@ -8,9 +8,7 @@ use daggy::{NodeIndex, Walker};
 
 use crate::graph::{prune, shortest_path, Radag};
 
-use super::{
-    AssignedRegressionPoint, PathAlgorithm, RegressionAlgorithm, RegressionPoint, TestResult,
-};
+use super::{PathAlgorithm, RegressionAlgorithm, RegressionPoint, TestResult};
 
 pub struct Settings {
     pub propagate: bool,
@@ -32,7 +30,7 @@ pub struct RPA<S: PathAlgorithm + RegressionAlgorithm, E> {
     settings: Settings,
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone > RPA<S, E> {
+impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<S, E> {
     pub fn new(
         dvcs: Radag<String, E>,
         root: String,
@@ -144,12 +142,7 @@ fn annotate_graph<E: Clone>(
 
 impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E> {
     fn add_result(&mut self, commit_hash: String, result: TestResult) {
-        let index = self
-            .commits
-            .indexation
-            .get(&commit_hash)
-            .expect("Unknown commit hash!")
-            .clone();
+        let index = self.commits.index(&commit_hash);
 
         let node = self
             .commits
@@ -169,25 +162,12 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E
             if search.done() {
                 remove = true;
                 for reg in search.results() {
-                    //TODO: When getting a candidate, we might be able reuse
-                    //this candidate for some other targets. For that we would
-                    //need to propagate the result down.
-                    if let RegressionPoint::Point(assigned_point) = reg {
-                        if self.settings.propagate {
-                            self.propagate_results(
-                                self.commits.indexation[&assigned_point.regression_point],
-                            );
-                        } else {
-                            self.remaining_targets.remove(
-                                &self
-                                    .commits
-                                    .indexation
-                                    .get(&assigned_point.target)
-                                    .expect("key missing"),
-                            );
-                            self.regressions
-                                .push(RegressionPoint::Point(assigned_point));
-                        }
+                    if self.settings.propagate {
+                        self.propagate_results(self.commits.index(&reg.regression_point));
+                    } else {
+                        self.remaining_targets
+                            .remove(&self.commits.index(&reg.target));
+                        self.regressions.push(reg);
                     }
                 }
             }
@@ -248,7 +228,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E
     }
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm, E> RPA<S,E> {
+impl<S: PathAlgorithm + RegressionAlgorithm, E> RPA<S, E> {
     fn update_paths(&mut self, origin: NodeIndex) {
         //TODO: The origin should never be a target. This is given by the fact
         //that this function will only be called, if the result is true and by
@@ -281,7 +261,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E> RPA<S,E> {
         let mut queue = VecDeque::<NodeIndex>::new();
         let mut visited = HashSet::new();
 
-        let regression_hash = self.node_from_index_unchecked(&regression).hash.to_string();
+        let regression_hash = self.commits.node_from_index(regression).hash;
 
         queue.push_back(regression);
         visited.insert(regression);
@@ -292,11 +272,10 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E> RPA<S,E> {
             if self.remaining_targets.contains(&current) {
                 self.remaining_targets.remove(&current);
                 let target_hash = self.node_from_index_unchecked(&current).hash.to_string();
-                self.regressions
-                    .push(RegressionPoint::Point(AssignedRegressionPoint {
-                        target: target_hash,
-                        regression_point: regression_hash.to_string(),
-                    }));
+                self.regressions.push(RegressionPoint {
+                    target: target_hash,
+                    regression_point: regression_hash.to_string(),
+                });
             }
 
             for (_, next) in self

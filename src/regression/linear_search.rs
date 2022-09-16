@@ -1,14 +1,18 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
+
+use priority_queue::DoublePriorityQueue;
 
 use crate::regression::TestResult;
 
-use super::{AssignedRegressionPoint, PathAlgorithm, RegressionAlgorithm, RegressionPoint};
+use super::{PathAlgorithm, RegressionAlgorithm, RegressionPoint};
 
 pub struct LinearSearch {
     path: VecDeque<String>,
+    results: Vec<Option<TestResult>>,
     index: usize,
-    regressions: BTreeMap<usize, RegressionPoint>,
-    job_await: HashMap<String, (String, usize)>,
+    valid_nodes: DoublePriorityQueue<String, usize>,
+    regression_point: Option<String>,
+    job_await: HashMap<String, usize>,
 }
 
 impl PathAlgorithm for LinearSearch {
@@ -18,22 +22,23 @@ impl PathAlgorithm for LinearSearch {
         }
 
         let index = path.len() - 2;
+        let mut results = vec![None; path.len()];
+        results[0] = Some(TestResult::True);
+        results[path.len() - 1] = Some(TestResult::False);
+        let mut valid_nodes = DoublePriorityQueue::new();
+        valid_nodes.push(path.front().unwrap().to_string(), 0);
 
         let mut lin = LinearSearch {
             path,
+            results,
             index,
-            regressions: BTreeMap::new(),
+            valid_nodes,
+            regression_point: None,
             job_await: HashMap::new(),
         };
 
-        if index == 2 {
-            lin.regressions.insert(
-                0,
-                RegressionPoint::Point(AssignedRegressionPoint {
-                    regression_point: lin.path.back().unwrap().to_string(),
-                    target: lin.path.back().unwrap().to_string(),
-                }),
-            );
+        if index == 0 {
+            lin.regression_point = Some(lin.path.back().unwrap().to_string());
         }
 
         lin
@@ -43,15 +48,26 @@ impl PathAlgorithm for LinearSearch {
 impl RegressionAlgorithm for LinearSearch {
     fn add_result(&mut self, commit: String, result: super::TestResult) {
         match self.job_await.remove(&commit) {
-            Some((last_commit, index)) => {
+            Some(index) => {
+                self.results[index] = Some(result.clone());
                 if result == TestResult::True {
-                    self.regressions.insert(
-                        index,
-                        RegressionPoint::Point(AssignedRegressionPoint {
-                            regression_point: last_commit,
-                            target: self.path.back().unwrap().clone(),
-                        }),
-                    );
+                    self.valid_nodes.push(commit, index);
+                }
+                // Traverse from the lowest valid node (highest index) to the next invalid node.
+                // If every commit in between has a result, then we found the
+                // lowest regression point
+                let (_, i) = self.valid_nodes.peek_max().unwrap();
+                for (ni, hash) in self.path.range((i.clone()+1)..self.path.len()).enumerate() {
+
+                    match &self.results[i + 1 + ni] {
+                        Some(res) => {
+                            if res == &TestResult::False {
+                                self.regression_point = Some(hash.to_string());
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
                 }
             }
             None => eprintln!("Result for {} is not expected. Will ignore it!", commit),
@@ -59,15 +75,11 @@ impl RegressionAlgorithm for LinearSearch {
     }
 
     fn next_job(&mut self, _: u32) -> super::AlgorithmResponse {
-        if self.index > 0 {
+        //If there are still unchecked nodes and no regression point has been
+        //found yet, then we want to continue with the next node on the path.
+        if self.index > 0 && self.valid_nodes.len() < 2 {
             let commit = self.path.get(self.index).unwrap();
-            self.job_await.insert(
-                commit.to_string(),
-                (
-                    self.path.get(self.index + 1).unwrap().to_string(),
-                    self.index,
-                ),
-            );
+            self.job_await.insert(commit.to_string(), self.index);
             self.index -= 1;
             super::AlgorithmResponse::Job(commit.to_string())
         } else if self.job_await.is_empty() {
@@ -78,19 +90,19 @@ impl RegressionAlgorithm for LinearSearch {
     }
 
     fn done(&self) -> bool {
-        self.job_await.is_empty() && self.regressions.len() > 0
+        self.regression_point.is_some()
     }
 
     fn results(&self) -> Vec<super::RegressionPoint> {
-        let mut res = Vec::new();
-        let mut last = None;
-        for (k, v) in self.regressions.iter().rev() {
-            if last.is_none() || (last.is_some() && last.unwrap() > &(k + 1)) {
-                res.push(v.clone());
-            }
-            last = Some(k);
-        }
-
-        res
+        let regression_point = self
+            .regression_point
+            .as_ref()
+            .expect("No regression point!")
+            .to_string();
+        let target = self.path.back().unwrap().clone();
+        vec![RegressionPoint {
+            regression_point,
+            target,
+        }]
     }
 }

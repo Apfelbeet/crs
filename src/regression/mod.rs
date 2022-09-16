@@ -4,11 +4,13 @@ pub mod rpa;
 pub mod binary_search;
 pub mod linear_search;
 pub mod multiplying_search;
+mod general_binary_search;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TestResult {
     True,
     False,
+    Ignore,
 }
 
 #[derive(Debug)]
@@ -19,22 +21,9 @@ pub enum AlgorithmResponse<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub enum RegressionPoint {
-    Point(AssignedRegressionPoint),
-    Candidate(AssignedRegressionCandidate),
-}
-
-#[derive(Debug, Clone)]
-pub struct AssignedRegressionPoint {
+pub struct RegressionPoint {
     pub target: String,
     pub regression_point: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct AssignedRegressionCandidate {
-    target: String,
-    lower_bound: String,
-    upper_bound: String,
 }
 
 pub trait RegressionAlgorithm {

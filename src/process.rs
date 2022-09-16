@@ -47,6 +47,8 @@ impl<S: DVCS> LocalProcess<S> {
                 Ok(output) => match output.status.code() {
                     Some(code) => if code == 0 {
                         TestResult::True
+                    } else if code == 125 {
+                        TestResult::Ignore
                     } else {
                         TestResult::False
                     },

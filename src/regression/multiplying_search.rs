@@ -1,189 +1,53 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 
-use crate::graph::length_of_path;
-
-use super::{AssignedRegressionPoint, PathAlgorithm, RegressionAlgorithm, RegressionPoint};
+use super::{general_binary_search::GeneralBinarySearch, PathAlgorithm, RegressionAlgorithm};
 
 pub struct MultiplyingSearch {
-    path: VecDeque<String>,
-    target: String,
-    left: String,
-    right: String,
-    step: Option<Step>,
-    regression: Option<String>,
+    search: GeneralBinarySearch,
     iteration: usize,
-}
-
-struct Step {
-    job_queue: VecDeque<String>,
-    job_await: HashSet<String>,
-    jobs: VecDeque<String>,
-    lowest: Option<String>,
 }
 
 impl PathAlgorithm for MultiplyingSearch {
     fn new(path: VecDeque<String>) -> Self {
-        if path.len() <= 1 {
-            panic!("Path is too short for a regression point!");
-        }
-
-        let left = path.front().unwrap().clone();
-        let right = path.back().unwrap().clone();
-
-        let mut mult = MultiplyingSearch {
-            path,
-            target: right.to_string(),
-            left,
-            right,
-            regression: None,
-            step: None,
+        MultiplyingSearch {
+            search: GeneralBinarySearch::new(path),
             iteration: 0,
-        };
-
-        mult.check_done();
-
-        mult
-    }
-}
-
-impl MultiplyingSearch {
-    fn check_done(&mut self) {
-        match length_of_path(&self.path, &self.left, &self.right) {
-            Ok(len) => {
-                if len <= 2 {
-                    self.regression = Some(self.right.to_string());
-                }
-            }
-            Err(_) => panic!("Error at calculation length of path!"),
         }
     }
 }
 
 impl RegressionAlgorithm for MultiplyingSearch {
     fn add_result(&mut self, commit: String, result: super::TestResult) {
-        if self.step.is_none() {
-            panic!("multiplying_search: No active step!");
-        } else {
-            if self.step.as_mut().unwrap().job_await.remove(&commit) {
-                match result {
-                    super::TestResult::True => {
-                        let lowest = &self.step.as_ref().unwrap().lowest;
-                        self.step.as_mut().unwrap().lowest = self
-                            .step
-                            .as_ref()
-                            .unwrap()
-                            .jobs
-                            .iter()
-                            .find(|current| {
-                                current.clone() == &commit
-                                    || (lowest.is_some()
-                                        && lowest.as_ref().unwrap() == current.clone())
-                            })
-                            .cloned();
-                    }
-                    super::TestResult::False => {}
-                }
+        let left_old = self.search.left.clone();
 
-                if self.step.as_ref().unwrap().job_await.is_empty() {
-                    match &self.step.as_ref().unwrap().lowest {
-                        Some(lowest) => {
-                            let mut prev = None;
+        self.search.add_result(commit, result);
 
-                            for job in &self.step.as_ref().unwrap().jobs {
-                                if job == lowest {
-                                    break;
-                                }
-                                prev = Some(job);
-                            }
-
-                            self.left = lowest.clone();
-
-                            if let Some(p) = prev {
-                                self.right = p.clone();
-                            }
-                            self.iteration = 0;
-                        }
-                        None => {
-                            self.right = self
-                                .step
-                                .as_ref()
-                                .unwrap()
-                                .jobs
-                                .back()
-                                .expect("Sample is missing!")
-                                .clone();
-                            // self.iteration += self.step.as_ref().unwrap().jobs.len();
-                            self.iteration += 1;
-                        }
-                    }
-        
-                    self.step = None;
-                    self.check_done();
-                }
+        //If the current step is done and we didn't move the left border, we
+        //want to increase the step size. Otherwise we want to reset it.
+        if self.search.step.is_none() {
+            if left_old == self.search.left {
+                self.iteration += 1;
             } else {
-                //Should not happen: We didn't expect a result for this commit.
-                //It's not a critical error, we could just ignore it, but it
-                //indicates a faulty behavior of the program.
-                panic!("multiplying_search: Didn't expect a result for {}", commit);
+                self.iteration = 0;
             }
-        } 
+        }
     }
 
     fn next_job(&mut self, capacity: u32) -> super::AlgorithmResponse {
-        if self.step.is_none() {
-            let jobs = take_samples(
-                &self.path,
-                &self.left,
-                &self.right,
-                capacity as usize,
-                self.iteration,
-            )
-            .expect("couldn't take samples!");
-
-            let step = Step {
-                job_queue: VecDeque::from(jobs.clone()),
-                job_await: HashSet::new(),
-                jobs: jobs,
-                lowest: None,
-            };
-
-            self.step = Some(step);
-        }
-
-        match self.step.as_mut().unwrap().job_queue.pop_back() {
-            Some(job) => {
-                self.step.as_mut().unwrap().job_await.insert(job.clone());
-                super::AlgorithmResponse::Job(job.clone())
-            }
-            None => {
-                if self.step.as_mut().unwrap().job_await.is_empty() {
-                    super::AlgorithmResponse::InternalError("Next step missing!")
-                } else {
-                    super::AlgorithmResponse::WaitForResult
-                }
-            }
-        }
+        self.search
+            .next_job(capacity as usize, self.iteration, take_samples)
     }
 
     fn done(&self) -> bool {
-        self.regression.is_some()
+        self.search.done()
     }
 
     fn results(&self) -> Vec<super::RegressionPoint> {
-        let mut regs = Vec::new();
-
-        if let Some(point) = self.regression.as_ref() {
-            regs.push(RegressionPoint::Point(AssignedRegressionPoint {
-                target: self.target.to_string(),
-                regression_point: point.to_string(),
-            }));
-        }
-
-        regs
+        self.search.results()
     }
 }
 
-fn take_samples<S: Clone + Eq + std::fmt::Debug>(
+fn take_samples<S: Clone + Eq>(
     path: &VecDeque<S>,
     left: &S,
     right: &S,
@@ -230,10 +94,10 @@ fn take_samples<S: Clone + Eq + std::fmt::Debug>(
                 sum += summand;
                 summand *= factor;
 
-                //it is ok to make the area smaller, if it is the last area. 
+                //it is ok to make the area smaller, if it is the last area.
                 if i == sample_size - 1 {
                     sum = std::cmp::min(length, sum);
-                } 
+                }
                 //otherwise if any other sample point would be outside or the
                 //last point of the range, we know that we have to decrease the
                 //factor.
@@ -243,7 +107,7 @@ fn take_samples<S: Clone + Eq + std::fmt::Debug>(
                 }
 
                 let index_on_path = r - sum;
-                samples.push_back(path.get(index_on_path).expect("Invalid index!").clone());
+                samples.push_front(path.get(index_on_path).expect("Invalid index!").clone());
             }
 
             if invalid {
@@ -256,7 +120,7 @@ fn take_samples<S: Clone + Eq + std::fmt::Debug>(
 
         if factor == 1 {
             // path.iter().take(std::cmp::min(sample_size, length)).cloned()
-            let range = path.range(r-std::cmp::min(sample_size, length)..r).rev();
+            let range = path.range(r - std::cmp::min(sample_size, length)..r).rev();
             samples = VecDeque::from_iter(range.cloned());
         }
 

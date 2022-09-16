@@ -1,7 +1,7 @@
 use crate::dvcs::DVCS;
 use crate::process::{LocalProcess, ProcessResponse};
 use crate::regression::{
-    AssignedRegressionPoint, RegressionAlgorithm, RegressionPoint, TestResult,
+    RegressionAlgorithm, RegressionPoint, TestResult,
 };
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -101,17 +101,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         process.clean_up();
     }
 
-    let results = core.results();
-    let points: Vec<&AssignedRegressionPoint> = results
-        .iter()
-        .filter_map(|reg| {
-            if let RegressionPoint::Point(point) = reg {
-                Some(point)
-            } else {
-                None
-            }
-        })
-        .collect();
+    let points = core.results();
 
     println!("\n---- STATS ----\n");
     println!("Commits tested: {}", stats.number_jobs);

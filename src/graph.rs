@@ -13,13 +13,16 @@ pub struct Radag<N, E> {
 }
 
 impl<N: Clone,E> Radag<N, E>  {
-    pub fn get_node(&self, hash: &String) -> N {
-        let index = self.indexation.get(hash).expect(&format!("{} is not a node in the graph!", hash));
+    pub fn node(&self, hash: &String) -> N {
+        self.graph.node_weight(self.index(hash)).expect("Radag seems corrupted!").clone()
+    }
+
+    pub fn node_from_index(&self, index: NodeIndex) -> N {
         self.graph.node_weight(index.clone()).expect("Radag seems corrupted!").clone()
     }
 
-    pub fn get_node_by_index(&self, index: NodeIndex) -> N {
-        self.graph.node_weight(index.clone()).expect("Radag seems corrupted!").clone()
+    pub fn index(&self, hash: &String) -> NodeIndex {
+        self.indexation.get(hash).expect(&format!("{} is not a node in the graph!", hash)).clone()
     }
 }
 
