@@ -3,8 +3,8 @@ use crate::graph::Radag;
 use daggy::{Dag, NodeIndex};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-use std::{collections::HashMap, hash::Hash};
 use std::process::Command;
+use std::{collections::HashMap, hash::Hash};
 
 use super::{run_command_sync, Worktree};
 
@@ -14,8 +14,8 @@ pub struct Git;
 impl DVCS for Git {
     //TODO: Right now when passing a repository as string/path, we assume that
     //the path is valid. We should check that the path
-    //is valid.  
-    
+    //is valid.
+
     fn commit_graph(repository: &str) -> Result<Radag<String, ()>, ()> {
         let mut command = Command::new("git");
         command.args(["rev-list", "--all", "--parents"]);
@@ -41,17 +41,21 @@ impl DVCS for Git {
         return parse_rev_list(rev_list?);
     }
 
-    fn create_worktree(repository: &str, name: &str, external_location: Option<String>) -> Result<super::Worktree, ()> {
+    fn create_worktree(
+        repository: &str,
+        name: &str,
+        external_location: Option<String>,
+    ) -> Result<super::Worktree, ()> {
         let wt_name = match &external_location {
             Some(loc) => {
                 let mut s = DefaultHasher::new();
                 loc.hash(&mut s);
                 let hash = s.finish().to_string();
                 format!("{}_{}", hash, name)
-            },
+            }
             None => format!("{}", name),
         };
-        
+
         let location = match &external_location {
             Some(loc) => format!("{}/{}", loc, wt_name),
             None => format!("{}/.crs/{}", repository, wt_name),
@@ -64,15 +68,9 @@ impl DVCS for Git {
 
         if !worktree_exists(repository, &wt_name) {
             let mut command = Command::new("git");
-    
-            command.args([
-                "worktree",
-                "add",
-                "--detach",
-                &location,
-                "--no-checkout",
-            ]);
-    
+
+            command.args(["worktree", "add", "--detach", &location, "--no-checkout"]);
+
             match run_command_sync(repository, &mut command) {
                 Ok(output) => {
                     if output.status.success() {
@@ -144,20 +142,58 @@ impl DVCS for Git {
                         Err(err) => {
                             eprintln!("couldn't parse response for commit information ({}) from git {:#?}", commit, err);
                             None
-                        },
+                        }
                     }
                 } else {
                     match String::from_utf8(output.stderr) {
-                        Ok(message) => eprintln!("git panicked while fetching commit information ({}): {}", commit, message),
-                        Err(_) => eprintln!("git panicked while fetching commit information ({})", commit),
+                        Ok(message) => eprintln!(
+                            "git panicked while fetching commit information ({}): {}",
+                            commit, message
+                        ),
+                        Err(_) => eprintln!(
+                            "git panicked while fetching commit information ({})",
+                            commit
+                        ),
                     };
                     None
                 }
-            },
+            }
             Err(err) => {
-                eprintln!("couldn't fetch commit information ({}) from git: {:#?}", commit, err);
+                eprintln!(
+                    "couldn't fetch commit information ({}) from git: {:#?}",
+                    commit, err
+                );
                 None
-            },
+            }
+        }
+    }
+
+    fn distance(worktree: &Worktree, commit: &str) -> u32 {
+        let mut command = Command::new("git");
+        command.args(["diff", "--numstat", "HEAD", commit]);
+
+        match run_command_sync(&worktree.location, &mut command) {
+            Ok(output) => {
+                if output.status.success() {
+                    let text = String::from_utf8(output.stdout).unwrap();
+                    let mut sum = 0;
+                    for line in text.lines() {
+                        let parts = line.split_whitespace();
+                        for (i, part) in parts.enumerate() {
+                            if let Ok(number) = part.parse::<u32>() {
+                                sum += number;
+                            }
+                            if i == 1 {
+                                break;
+                            }
+                        }
+                    }
+                    sum
+                } else {
+                    panic!("git panicked {}", String::from_utf8(output.stderr).unwrap())
+                }
+            }
+            Err(err) => panic!("git panicked {}", err),
         }
     }
 }
@@ -165,11 +201,7 @@ impl DVCS for Git {
 fn worktree_exists(location: &str, name: &str) -> bool {
     let mut command = Command::new("git");
 
-    command.args([
-        "worktree",
-        "list",
-        "--porcelain",
-    ]);
+    command.args(["worktree", "list", "--porcelain"]);
 
     match run_command_sync(location, &mut command) {
         Ok(output) => {
@@ -179,10 +211,10 @@ fn worktree_exists(location: &str, name: &str) -> bool {
             } else {
                 panic!("{}", String::from_utf8(output.stderr).unwrap().as_str());
             }
-        },
+        }
         Err(err) => {
             panic!("{}", err.to_string().as_str())
-        },
+        }
     }
 }
 
@@ -229,11 +261,13 @@ fn parse_rev_list(rev_list: String) -> Result<Radag<String, ()>, ()> {
     }
 
     match root {
-        Some(index) => {
-            match graph.node_weight(index) {
-                Some(r) => Ok(Radag { root: r.to_string(), graph, indexation }),
-                None => Err(()),
-            }
+        Some(index) => match graph.node_weight(index) {
+            Some(r) => Ok(Radag {
+                root: r.to_string(),
+                graph,
+                indexation,
+            }),
+            None => Err(()),
         },
         None => Err(()),
     }

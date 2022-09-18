@@ -10,6 +10,7 @@ pub trait DVCS {
     fn remove_worktree(worktree: &Worktree) -> Result<(), ()>;
     fn checkout(worktree: &Worktree, commit: &str) -> Result<(), ()>;
     fn get_commit_info(repository: &str, commit: &str) -> Option<String>;
+    fn distance(worktree: &Worktree, commit: &str) -> u32;
 }
 
 #[derive(Debug, Clone)]

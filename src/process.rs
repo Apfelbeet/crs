@@ -8,7 +8,7 @@ pub type ProcessResponse = (u32, String, TestResult);
 
 pub struct LocalProcess<S> {
     pub id: u32,
-    worktree: Worktree,
+    pub worktree: Worktree,
     _marker: PhantomData<S>,
 }
 
