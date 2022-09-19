@@ -1,9 +1,10 @@
 use crate::dvcs::DVCS;
-use crate::process::{LocalProcess, ProcessResponse};
+use crate::process::{ExecutionTime, LocalProcess, ProcessError, ProcessResponse};
 use crate::regression::{RegressionAlgorithm, TestResult};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::mpsc::{self, RecvError, TryRecvError};
+use std::time::Instant;
 
 struct ProcessPool<T> {
     next_id: u32,
@@ -15,11 +16,15 @@ struct ProcessPool<T> {
 
 struct Stats {
     number_jobs: u32,
+    failed_tests: u32,
 }
 
 impl Stats {
     fn new() -> Self {
-        Stats { number_jobs: 0 }
+        Stats {
+            number_jobs: 0,
+            failed_tests: 0,
+        }
     }
 }
 
@@ -42,6 +47,8 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         _marker: PhantomData,
     };
 
+    let mut benchmarks_times = HashMap::<String, ExecutionTime>::new();
+    let start_time = Instant::now();
     //We assume that there is at least one process available in the first
     //iteration.
     while !core.done() {
@@ -69,7 +76,17 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
 
         if wait || (pool.idle_processes.is_empty() && pool.empty_slots == 0) {
             match recv_response(&recv, &mut pool) {
-                Ok((commit, result)) => core.add_result(commit, result),
+                Ok((_, commit, res)) => match res {
+                    Ok((result, times)) => {
+                        benchmarks_times.insert(commit.clone(), times);
+                        core.add_result(commit, result);
+                    }
+                    Err(err) => {
+                        eprintln!("{} execution failed: {:?}\n", commit, err);
+                        core.add_result(commit, TestResult::Ignore);
+                        stats.failed_tests += 1;
+                    }
+                },
                 Err(err) => {
                     eprintln!("{}", err);
                     break;
@@ -79,7 +96,17 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
 
         loop {
             match try_recv_response(&recv, &mut pool) {
-                Ok((commit, result)) => core.add_result(commit, result),
+                Ok((_, commit, res)) => match res {
+                    Ok((result, times)) => {
+                        benchmarks_times.insert(commit.clone(), times);
+                        core.add_result(commit, result);
+                    }
+                    Err(err) => {
+                        eprintln!("{} execution failed: {:?}\n", commit, err);
+                        core.add_result(commit, TestResult::Ignore);
+                        stats.failed_tests += 1;
+                    }
+                },
                 Err(err) => match err {
                     TryRecvError::Empty => break,
                     TryRecvError::Disconnected => {
@@ -91,10 +118,12 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         }
     } //END LOOP
 
+    let _overall_execution_time = start_time.elapsed();
+
     //Wait for active processes to be done and clean up.
     println!("Wait for active processes to finish!");
     while !pool.active_processes.is_empty() {
-        recv_response(&recv, &mut pool).expect("Process crashed!");
+        let _ = recv_response(&recv, &mut pool);
     }
     for process in pool.idle_processes {
         process.clean_up();
@@ -156,19 +185,33 @@ fn get_nearest_process<'a, T: DVCS>(pool: &'a mut ProcessPool<T>, commit: &str) 
 fn try_recv_response<T: DVCS>(
     recv: &mpsc::Receiver<ProcessResponse>,
     pool: &mut ProcessPool<T>,
-) -> Result<(String, TestResult), TryRecvError> {
-    let (id, commit, result) = recv.try_recv()?;
-    deactivate_process(id, pool);
-    Ok((commit, result))
+) -> Result<
+    (
+        u32,
+        String,
+        Result<(TestResult, ExecutionTime), ProcessError>,
+    ),
+    TryRecvError,
+> {
+    let res = recv.try_recv()?;
+    deactivate_process(res.0, pool);
+    Ok(res)
 }
 
 fn recv_response<T: DVCS>(
     recv: &mpsc::Receiver<ProcessResponse>,
     pool: &mut ProcessPool<T>,
-) -> Result<(String, TestResult), RecvError> {
-    let (id, commit, result) = recv.recv()?;
-    deactivate_process(id, pool); //FIXME: If the process panics, it will not be deactivated.
-    Ok((commit, result))
+) -> Result<
+    (
+        u32,
+        String,
+        Result<(TestResult, ExecutionTime), ProcessError>,
+    ),
+    RecvError,
+> {
+    let res = recv.recv()?;
+    deactivate_process(res.0, pool);
+    Ok(res)
 }
 
 fn deactivate_process<T: DVCS>(id: u32, pool: &mut ProcessPool<T>) {
