@@ -1,3 +1,4 @@
+use crate::benchmark::write_data;
 use crate::dvcs::DVCS;
 use crate::process::{ExecutionTime, LocalProcess, ProcessError, ProcessResponse};
 use crate::regression::{RegressionAlgorithm, TestResult};
@@ -6,6 +7,10 @@ use std::marker::PhantomData;
 use std::sync::mpsc::{self, RecvError, TryRecvError};
 use std::time::Instant;
 
+pub struct Options {
+    pub worktree_location: Option<String>,
+    pub benchmark_location: Option<std::path::PathBuf>,
+}
 struct ProcessPool<T> {
     next_id: u32,
     empty_slots: u32,
@@ -33,7 +38,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
     repository: &str,
     threads: u32,
     script_path: &str,
-    worktree_location: Option<String>,
+    options: Options,
 ) {
     let mut stats = Stats::new();
 
@@ -47,7 +52,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         _marker: PhantomData,
     };
 
-    let mut benchmarks_times = HashMap::<String, ExecutionTime>::new();
+    let mut benchmarks_times = Vec::<(u32, String, ExecutionTime)>::new();
     let start_time = Instant::now();
     //We assume that there is at least one process available in the first
     //iteration.
@@ -56,7 +61,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         match core.next_job(pool.idle_processes.len() as u32 + pool.empty_slots) {
             crate::regression::AlgorithmResponse::Job(commit) => {
                 let process =
-                    load_process(&mut pool, repository, worktree_location.clone(), &commit);
+                    load_process(&mut pool, repository, options.worktree_location.clone(), &commit);
                 process.run(commit, send.clone(), script_path.to_string());
                 stats.number_jobs += 1;
             }
@@ -76,9 +81,9 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
 
         if wait || (pool.idle_processes.is_empty() && pool.empty_slots == 0) {
             match recv_response(&recv, &mut pool) {
-                Ok((_, commit, res)) => match res {
+                Ok((pid, commit, res)) => match res {
                     Ok((result, times)) => {
-                        benchmarks_times.insert(commit.clone(), times);
+                        benchmarks_times.push((pid, commit.clone(), times));
                         core.add_result(commit, result);
                     }
                     Err(err) => {
@@ -96,9 +101,9 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
 
         loop {
             match try_recv_response(&recv, &mut pool) {
-                Ok((_, commit, res)) => match res {
+                Ok((pid, commit, res)) => match res {
                     Ok((result, times)) => {
-                        benchmarks_times.insert(commit.clone(), times);
+                        benchmarks_times.push((pid, commit.clone(), times));
                         core.add_result(commit, result);
                     }
                     Err(err) => {
@@ -118,7 +123,10 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         }
     } //END LOOP
 
-    let _overall_execution_time = start_time.elapsed();
+    let overall_execution_time = start_time.elapsed();
+    if let Some(benchmark_location) = options.benchmark_location {
+        write_data(benchmark_location, overall_execution_time, benchmarks_times)
+    }
 
     //Wait for active processes to be done and clean up.
     println!("Wait for active processes to finish!");
@@ -134,6 +142,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
     println!("\n---- STATS ----\n");
     println!("Commits tested: {}", stats.number_jobs);
     println!("Regression points: {}", points.len());
+    println!("Runtime (seconds): {}", overall_execution_time.as_secs_f32());
     println!("\n----\n");
 
     for point in points {

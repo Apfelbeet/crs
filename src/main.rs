@@ -3,8 +3,10 @@ mod manage;
 mod regression;
 mod process;
 mod graph;
+mod benchmark;
 
 use dvcs::{git::Git, DVCS};
+use manage::Options;
 use regression::{rpa::{RPA, Settings}, binary_search::BinarySearch, linear_search::LinearSearch, multiplying_search::MultiplyingSearch};
 
 use crate::manage::start;
@@ -12,38 +14,48 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[clap(version, about, long_about = None)]
-struct Args {
+pub struct Args {
     #[clap(parse(from_os_str))]
-    repository: std::path::PathBuf,
+    pub repository: std::path::PathBuf,
     #[clap(parse(from_os_str))]
-    test: std::path::PathBuf,
+    pub test: std::path::PathBuf,
 
     #[clap(short, long, value_parser, value_name = "AMOUNT", default_value_t = 1)]
-    processes: u32,
+    pub processes: u32,
     
     #[clap(short, long, value_parser)]
-    start: String,
+    pub start: String,
 
     #[clap(value_parser, last = true)]
-    targets: Vec<String>,
+    pub targets: Vec<String>,
 
     #[clap(long, action)]
-    no_propagate: bool,
+    pub no_propagate: bool,
 
     #[clap(parse(from_os_str), long)]
-    worktree_location: Option<std::path::PathBuf>,
+    pub worktree_location: Option<std::path::PathBuf>,
 
     #[clap(long, value_parser, value_name = "MODE", default_value = "rpa-binary")]
-    search_mode: String,
+    pub search_mode: String,
+
+    #[clap(parse(from_os_str), long, value_name = "DIRECTORY")]
+    pub benchmark: Option<std::path::PathBuf>,
 }
 
 fn main() {
 
     let args = Args::parse();
 
+    let benchmark_location = args.benchmark.as_ref().map(|b_dir| benchmark::write_header(b_dir, &args));
+
     let worktree_location = match args.worktree_location {
         Some(path) => Some(path.display().to_string()),
         None => None,
+    };
+
+    let options = Options {
+        worktree_location,
+        benchmark_location,
     };
 
     let repository_path = &args.repository.display().to_string();
@@ -54,15 +66,15 @@ fn main() {
     match args.search_mode.as_str() {
         "rpa-binary" => {
             let mut rpa = RPA::<BinarySearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
-            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
+            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, options);
         },
         "rpa-linear" => {
             let mut rpa = RPA::<LinearSearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
-            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
+            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, options);
         },
         "rpa-multi" => {
             let mut rpa = RPA::<MultiplyingSearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });
-            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, worktree_location);
+            start::<_, Git>(&mut rpa, repository_path, args.processes, test_path, options);
         },
         &_ => {
             panic!("Invalid search mode! Pick (rpa-binary, rpa-linear, rpa-multi)");

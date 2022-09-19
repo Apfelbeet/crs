@@ -14,9 +14,9 @@ pub enum ProcessError {
 
 #[derive(Debug, Clone)]
 pub struct ExecutionTime {
-    checkout: Duration,
-    query: Duration,
-    all: Duration,
+    pub checkout: Duration,
+    pub query: Duration,
+    pub all: Duration,
 }
 
 pub type ProcessResponse = (
