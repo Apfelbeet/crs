@@ -13,16 +13,17 @@ pub enum ProcessError {
 }
 
 #[derive(Debug, Clone)]
-pub struct ExecutionTime {
-    pub checkout: Duration,
+pub struct ExecutionData {
+    pub setup: Duration,
     pub query: Duration,
     pub all: Duration,
+    pub diff: u32,
 }
 
 pub type ProcessResponse = (
     u32,
     String,
-    Result<(TestResult, ExecutionTime), ProcessError>,
+    Result<(TestResult, ExecutionData), ProcessError>,
 );
 
 pub struct LocalProcess<S> {
@@ -48,6 +49,7 @@ impl<S: DVCS> LocalProcess<S> {
         commit: String,
         transmitter: mpsc::Sender<ProcessResponse>,
         script_path: String,
+        setup_time: Instant,
     ) {
         let id = self.id;
         let worktree = self.worktree.clone();
@@ -58,7 +60,7 @@ impl<S: DVCS> LocalProcess<S> {
                 None => println!("Process {}: {}\n----", id, commit),
             }
 
-            let start_time = Instant::now();
+            let distance = S::distance(&worktree, &commit);
 
             if S::checkout(&worktree, commit.as_str()).is_err() {
                 let message = format!("{} couldn't checkout {}", id, commit);
@@ -68,7 +70,7 @@ impl<S: DVCS> LocalProcess<S> {
                 return;
             }
 
-            let after_checkout_time = Instant::now();
+            let after_setup_time = Instant::now();
 
             let result = match run_script_sync(&worktree.location, &script_path) {
                 Ok(output) => match output.status.code() {
@@ -102,9 +104,9 @@ impl<S: DVCS> LocalProcess<S> {
 
             let after_query_time = Instant::now();
 
-            let checkout_duration = after_checkout_time.checked_duration_since(start_time);
-            let query_duration = after_query_time.checked_duration_since(after_checkout_time);
-            let overall_duration = after_query_time.checked_duration_since(start_time);
+            let checkout_duration = after_setup_time.checked_duration_since(setup_time);
+            let query_duration = after_query_time.checked_duration_since(after_setup_time);
+            let overall_duration = after_query_time.checked_duration_since(setup_time);
 
             if checkout_duration.is_none() || query_duration.is_none() || overall_duration.is_none()
             {
@@ -112,10 +114,11 @@ impl<S: DVCS> LocalProcess<S> {
                     .send((id, commit, Err(ProcessError::TimeError)))
                     .expect("transmitter broken!");
             } else {
-                let execution_time = ExecutionTime {
+                let execution_time = ExecutionData {
                     all: overall_duration.unwrap(),
-                    checkout: checkout_duration.unwrap(),
+                    setup: checkout_duration.unwrap(),
                     query: query_duration.unwrap(),
+                    diff: distance,
                 };
                 transmitter
                     .send((id, commit, Ok((result, execution_time))))

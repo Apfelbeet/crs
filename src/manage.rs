@@ -1,6 +1,6 @@
 use crate::benchmark::write_data;
 use crate::dvcs::DVCS;
-use crate::process::{ExecutionTime, LocalProcess, ProcessError, ProcessResponse};
+use crate::process::{ExecutionData, LocalProcess, ProcessError, ProcessResponse};
 use crate::regression::{RegressionAlgorithm, TestResult};
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -52,7 +52,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         _marker: PhantomData,
     };
 
-    let mut benchmarks_times = Vec::<(u32, String, ExecutionTime)>::new();
+    let mut benchmarks_times = Vec::<(u32, String, ExecutionData)>::new();
     let start_time = Instant::now();
     //We assume that there is at least one process available in the first
     //iteration.
@@ -60,9 +60,10 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         let mut wait = false;
         match core.next_job(pool.idle_processes.len() as u32 + pool.empty_slots) {
             crate::regression::AlgorithmResponse::Job(commit) => {
+                let setup_time = Instant::now();
                 let process =
                     load_process(&mut pool, repository, options.worktree_location.clone(), &commit);
-                process.run(commit, send.clone(), script_path.to_string());
+                process.run(commit, send.clone(), script_path.to_string(), setup_time);
                 stats.number_jobs += 1;
             }
             crate::regression::AlgorithmResponse::WaitForResult => {
@@ -198,7 +199,7 @@ fn try_recv_response<T: DVCS>(
     (
         u32,
         String,
-        Result<(TestResult, ExecutionTime), ProcessError>,
+        Result<(TestResult, ExecutionData), ProcessError>,
     ),
     TryRecvError,
 > {
@@ -214,7 +215,7 @@ fn recv_response<T: DVCS>(
     (
         u32,
         String,
-        Result<(TestResult, ExecutionTime), ProcessError>,
+        Result<(TestResult, ExecutionData), ProcessError>,
     ),
     RecvError,
 > {
