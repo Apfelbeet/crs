@@ -10,6 +10,7 @@ pub enum ProcessError {
     DVCSError(String),
     ScriptError(String),
     TimeError,
+    Code,
 }
 
 #[derive(Debug, Clone)]
@@ -79,7 +80,10 @@ impl<S: DVCS> LocalProcess<S> {
                             TestResult::True
                         } else if code == 125 {
                             TestResult::Ignore
-                        } else {
+                        } else if code >= 128 {
+                            transmitter.send((id, commit, Err(ProcessError::Code))).expect("transmitter broken!");
+                            return;
+                        }else {
                             TestResult::False
                         }
                     }
