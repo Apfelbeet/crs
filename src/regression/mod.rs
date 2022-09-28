@@ -4,7 +4,17 @@ pub mod rpa;
 pub mod binary_search;
 pub mod linear_search;
 pub mod multiplying_search;
-mod general_binary_search;
+mod interval_search1;
+// mod interval_search2;
+// mod interval_search3;
+mod interval_search {
+    pub use super::interval_search1::*;
+    // pub use super::interval_search2::*;
+    // pub use super::interval_search3::*;
+}
+
+pub const NAME: &str = interval_search::NAME; 
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TestResult {

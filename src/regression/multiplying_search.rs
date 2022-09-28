@@ -1,16 +1,16 @@
 use std::collections::VecDeque;
 
-use super::{general_binary_search::GeneralBinarySearch, PathAlgorithm, RegressionAlgorithm};
+use super::{interval_search::IntervalSearch, PathAlgorithm, RegressionAlgorithm};
 
 pub struct MultiplyingSearch {
-    search: GeneralBinarySearch,
+    search: IntervalSearch,
     iteration: usize,
 }
 
 impl PathAlgorithm for MultiplyingSearch {
     fn new(path: VecDeque<String>) -> Self {
         MultiplyingSearch {
-            search: GeneralBinarySearch::new(path),
+            search: IntervalSearch::new(path),
             iteration: 0,
         }
     }

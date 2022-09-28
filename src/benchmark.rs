@@ -6,7 +6,7 @@ use std::{
 use chrono::Utc;
 use std::io::Write;
 
-use crate::{process::ExecutionData, Args};
+use crate::{process::ExecutionData, Args, regression};
 
 pub fn write_header(directory: &std::path::PathBuf, args: &Args) -> std::path::PathBuf {
     let date = Utc::now();
@@ -26,6 +26,7 @@ pub fn write_header(directory: &std::path::PathBuf, args: &Args) -> std::path::P
 * processes: {},
 * no propagate: {},
 * search mode: {},
+* scheduling: {}, 
 * start: {},
 * targets: {:?},
 */
@@ -38,6 +39,7 @@ pub fn write_header(directory: &std::path::PathBuf, args: &Args) -> std::path::P
         args.processes,
         args.no_propagate,
         args.search_mode,
+        regression::NAME,
         args.start,
         args.targets
     );

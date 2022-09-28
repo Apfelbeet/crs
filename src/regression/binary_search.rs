@@ -1,14 +1,14 @@
 use std::collections::VecDeque;
 
-use super::{PathAlgorithm, RegressionAlgorithm, RegressionPoint, TestResult, general_binary_search::GeneralBinarySearch};
+use super::{PathAlgorithm, RegressionAlgorithm, RegressionPoint, TestResult, interval_search::IntervalSearch};
 
 pub struct BinarySearch {
-    search: GeneralBinarySearch
+    search: IntervalSearch
 }
 
 impl PathAlgorithm for BinarySearch {
     fn new(path: VecDeque<String>) -> Self {
-        BinarySearch { search: GeneralBinarySearch::new(path) }
+        BinarySearch { search: IntervalSearch::new(path) }
     }
 }
 

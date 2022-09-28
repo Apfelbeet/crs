@@ -6,8 +6,10 @@ use crate::graph::length_of_path;
 
 use super::{TestResult, RegressionPoint};
 
+pub const NAME: &str = "interval_search1.rs";
+
 pub type SampleFunction = fn(&VecDeque<String>, &String, &String, usize, usize) -> Result<VecDeque<String>, ()>;
-pub struct GeneralBinarySearch {
+pub struct IntervalSearch {
     pub path: VecDeque<String>,
     pub target: String,
     pub left: String,
@@ -24,7 +26,7 @@ pub struct Step {
     pub valid_nodes: DoublePriorityQueue<String, usize>,
 }
 
-impl GeneralBinarySearch {
+impl IntervalSearch {
     pub fn new(path: VecDeque<String>) -> Self {
         if path.len() <= 1 {
             panic!("Path is too short for a regression point!");
@@ -37,7 +39,7 @@ impl GeneralBinarySearch {
         results.insert(left.clone(), TestResult::True);
         results.insert(right.clone(), TestResult::False);
 
-        let mut bin = GeneralBinarySearch {
+        let mut bin = IntervalSearch {
             path,
             target: right.to_string(),
             left,
