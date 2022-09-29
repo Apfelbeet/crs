@@ -5,7 +5,7 @@ use crate::graph::Radag;
 pub mod git;
 
 pub trait DVCS {
-    fn commit_graph(repository: &str) -> Result<Radag<String, ()>, ()>;
+    fn commit_graph(repository: &str, start: Vec<String>, targets: Vec<String>) -> Result<Radag<String, ()>, ()>;
     fn create_worktree(repository: &str, name: &str, external_location: Option<String>) -> Result<Worktree, ()>;
     fn remove_worktree(worktree: &Worktree) -> Result<(), ()>;
     fn checkout(worktree: &Worktree, commit: &str) -> Result<(), ()>;

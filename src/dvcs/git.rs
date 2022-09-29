@@ -1,6 +1,6 @@
 use crate::dvcs::DVCS;
 use crate::graph::Radag;
-use daggy::{Dag, NodeIndex};
+use daggy::{Dag, NodeIndex, Walker};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::process::Command;
@@ -16,9 +16,17 @@ impl DVCS for Git {
     //the path is valid. We should check that the path
     //is valid.
 
-    fn commit_graph(repository: &str) -> Result<Radag<String, ()>, ()> {
+    fn commit_graph(
+        repository: &str,
+        start: Vec<String>,
+        targets: Vec<String>,
+    ) -> Result<Radag<String, ()>, ()> {
         let mut command = Command::new("git");
-        command.args(["rev-list", "--all", "--parents"]);
+        command
+            .args(["rev-list", "--parents"])
+            .args(targets)
+            .arg("--not")
+            .args(start);
 
         let rev_list = match run_command_sync(repository, &mut command) {
             Err(err) => {
@@ -225,7 +233,6 @@ fn print_error(msg: &str) {
 fn parse_rev_list(rev_list: String) -> Result<Radag<String, ()>, ()> {
     let mut indexation = HashMap::new();
     let mut graph = Dag::new();
-    let mut root = None;
 
     let lines = rev_list.lines();
 
@@ -238,11 +245,6 @@ fn parse_rev_list(rev_list: String) -> Result<Radag<String, ()>, ()> {
         //index will be returned.
         let index1 = try_add_hash(op_h1, &mut graph, &mut indexation);
         let mut index2 = try_add_hash(op_h2, &mut graph, &mut indexation);
-
-        //A line with only one entry represents the root of the graph.
-        if index2.is_none() {
-            root = index1;
-        }
 
         //We can only create an edge, if both are real nodes.
         if index1.is_some() {
@@ -260,17 +262,27 @@ fn parse_rev_list(rev_list: String) -> Result<Radag<String, ()>, ()> {
         }
     }
 
-    match root {
-        Some(index) => match graph.node_weight(index) {
-            Some(r) => Ok(Radag {
-                root: r.to_string(),
-                graph,
-                indexation,
-            }),
-            None => Err(()),
-        },
-        None => Err(()),
+    let roots: Vec<&String> = indexation
+        .iter()
+        .filter(|(_, i)| graph.parents(i.clone().clone()).iter(&graph).count() == 0)
+        .map(|(hash, _)| hash)
+        .collect();
+
+    if roots.len() == 0 {
+        eprintln!("Graph has no root!");
+        return Err(());
+    } else if roots.len() > 1 {
+        eprintln!("More than one root is not supported!");
+        return Err(());
     }
+
+    Ok(
+        Radag {
+            root: roots[0].to_string(),
+            graph,
+            indexation,
+        }
+    )
 }
 
 fn try_add_hash(

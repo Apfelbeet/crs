@@ -65,8 +65,8 @@ fn main() {
     let repository_path = &args.repository.display().to_string();
     let test_path = &args.test.display().to_string();
 
-    let g = Git::commit_graph(repository_path).unwrap();
-    //TODO: There has to be a nicer way.
+    let g = Git::commit_graph(repository_path, vec![args.start.clone()], args.targets.clone()).unwrap();
+    // TODO: There has to be a nicer way.
     match args.search_mode.as_str() {
         "rpa-binary" => {
             let mut rpa = RPA::<BinarySearch, ()>::new(g, args.start, args.targets, Settings{propagate: !args.no_propagate });

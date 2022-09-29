@@ -6,7 +6,7 @@ use std::{
 
 use daggy::{NodeIndex, Walker};
 
-use crate::graph::{prune, shortest_path, Radag};
+use crate::graph::{shortest_path, Radag};
 
 use super::{PathAlgorithm, RegressionAlgorithm, RegressionPoint, TestResult};
 
@@ -38,27 +38,17 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<S, E> {
         targets: Vec<String>,
         settings: Settings,
     ) -> Self {
-        let pruned = prune(&dvcs, &vec![root.to_string()], &targets);
-
-        if pruned.graph.node_count() == 0 {
-            panic!("Graph is empty!");
-        }
-
-        let root_index = pruned
-            .indexation
-            .get(&root)
-            .expect("Node for root hash missing!")
-            .clone();
+        let root_index = dvcs.index(&root);
 
         let targets_index = HashSet::from_iter(
             targets
                 .iter()
-                .filter_map(|hash| pruned.indexation.get(hash))
+                .filter_map(|hash| dvcs.indexation.get(hash))
                 .map(|reference| reference.clone()),
         );
 
         let (annotated, shortest_path) = annotate_graph(
-            pruned,
+            dvcs,
             root_index.clone(),
             &HashSet::from_iter(targets_index.iter().cloned()),
         );
