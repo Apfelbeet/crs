@@ -1,4 +1,4 @@
-use std::process::{Command, Output};
+use std::{process::{Command, Output, Child}, io::Error};
 
 use crate::graph::Radag;
 
@@ -19,11 +19,19 @@ pub struct Worktree {
     pub name: String,
 }
 
-pub fn run_script_sync(location: &str, script_path: &str) -> std::io::Result<Output> {
+// pub fn run_script_sync(location: &str, script_path: &str) -> std::io::Result<Output> {
+//     let mut command = Command::new(script_path);
+//     command.current_dir(location);
+
+//     let x = command.output();
+//     x
+// }
+
+pub fn run_script_async(location: &str, script_path: &str) -> Result<Child, Error> {
     let mut command = Command::new(script_path);
     command.current_dir(location);
 
-    let x = command.output();
+    let x = command.spawn();
     x
 }
 

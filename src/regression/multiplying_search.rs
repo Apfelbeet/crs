@@ -38,6 +38,10 @@ impl RegressionAlgorithm for MultiplyingSearch {
             .next_job(capacity as usize, self.iteration, take_samples)
     }
 
+    fn interrupts(&mut self) -> Vec<String> {
+        self.search.interrupts()
+    }
+
     fn done(&self) -> bool {
         self.search.done()
     }

@@ -40,6 +40,9 @@ pub struct Args {
 
     #[clap(parse(from_os_str), long, value_name = "DIRECTORY")]
     pub benchmark: Option<std::path::PathBuf>,
+
+    #[clap(long, action)]
+    pub interrupt: bool,
 }
 
 fn main() {
@@ -56,6 +59,7 @@ fn main() {
     let options = Options {
         worktree_location,
         benchmark_location,
+        do_interrupt: args.interrupt,
     };
 
     let repository_path = &args.repository.display().to_string();

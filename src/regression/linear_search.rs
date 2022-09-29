@@ -13,6 +13,7 @@ pub struct LinearSearch {
     valid_nodes: DoublePriorityQueue<String, usize>,
     regression_point: Option<String>,
     job_await: HashMap<String, usize>,
+    interrupts: Vec<String>,
 }
 
 impl PathAlgorithm for LinearSearch {
@@ -35,6 +36,7 @@ impl PathAlgorithm for LinearSearch {
             valid_nodes,
             regression_point: None,
             job_await: HashMap::new(),
+            interrupts: vec![],
         };
 
         if index == 0 {
@@ -57,11 +59,16 @@ impl RegressionAlgorithm for LinearSearch {
                 // If every commit in between has a result, then we found the
                 // lowest regression point
                 let (_, i) = self.valid_nodes.peek_max().unwrap();
-                for (ni, hash) in self.path.range((i.clone()+1)..self.path.len()).enumerate() {
-
+                for (ni, hash) in self
+                    .path
+                    .range((i.clone() + 1)..self.path.len())
+                    .enumerate()
+                {
                     match &self.results[i + 1 + ni] {
                         Some(res) => {
                             if res == &TestResult::False {
+                                let inters = self.job_await.iter().map(|(a, _)| a.to_string());
+                                self.interrupts.extend(inters);
                                 self.regression_point = Some(hash.to_string());
                                 break;
                             }
@@ -87,6 +94,12 @@ impl RegressionAlgorithm for LinearSearch {
         } else {
             super::AlgorithmResponse::WaitForResult
         }
+    }
+
+    fn interrupts(&mut self) -> Vec<String> {
+        let i = self.interrupts.clone();
+        self.interrupts = vec![];
+        i
     }
 
     fn done(&self) -> bool {

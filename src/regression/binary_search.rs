@@ -28,6 +28,10 @@ impl RegressionAlgorithm for BinarySearch {
     fn results(&self) -> Vec<RegressionPoint> {
         self.search.results()
     }
+
+    fn interrupts(&mut self) -> Vec<String> {
+        self.search.interrupts()
+    }
 }
 
 fn take_uniform_sample<S: Clone + Eq>(

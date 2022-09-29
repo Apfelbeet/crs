@@ -4,11 +4,12 @@ use priority_queue::DoublePriorityQueue;
 
 use crate::graph::length_of_path;
 
-use super::{TestResult, RegressionPoint};
+use super::{RegressionPoint, TestResult};
 
 pub const NAME: &str = "interval_search1.rs";
 
-pub type SampleFunction = fn(&VecDeque<String>, &String, &String, usize, usize) -> Result<VecDeque<String>, ()>;
+pub type SampleFunction =
+    fn(&VecDeque<String>, &String, &String, usize, usize) -> Result<VecDeque<String>, ()>;
 pub struct IntervalSearch {
     pub path: VecDeque<String>,
     pub target: String,
@@ -17,6 +18,7 @@ pub struct IntervalSearch {
     pub step: Option<Step>,
     pub regression: Option<String>,
     pub results: HashMap<String, TestResult>,
+    pub interrupts: Vec<String>,
 }
 
 pub struct Step {
@@ -47,6 +49,7 @@ impl IntervalSearch {
             regression: None,
             step: None,
             results,
+            interrupts: vec![],
         };
 
         bin.check_done();
@@ -86,13 +89,7 @@ impl IntervalSearch {
                 let mut regression = None;
 
                 let mut incomplete = false;
-                for hash in self
-                    .step
-                    .as_ref()
-                    .unwrap()
-                    .jobs
-                    .range(i.clone()..jobs_len)
-                {
+                for hash in self.step.as_ref().unwrap().jobs.range(i.clone()..jobs_len) {
                     match self.results.get(hash) {
                         Some(res) => {
                             if res == &TestResult::False {
@@ -111,6 +108,8 @@ impl IntervalSearch {
                         self.right = reg_point;
                     }
                     self.left = lowest_valid.to_string();
+                    self.interrupts
+                        .extend(self.step.as_ref().unwrap().job_await.iter().cloned());
                     self.clean_path();
                     self.step = None;
                     self.check_done();
@@ -156,6 +155,12 @@ impl IntervalSearch {
                 }
             }
         }
+    }
+
+    pub fn interrupts(&mut self) -> Vec<String> {
+        let i = self.interrupts.clone();
+        self.interrupts = vec![];
+        i
     }
 
     pub fn done(&self) -> bool {

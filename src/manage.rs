@@ -10,25 +10,27 @@ use std::time::Instant;
 pub struct Options {
     pub worktree_location: Option<String>,
     pub benchmark_location: Option<std::path::PathBuf>,
+    pub do_interrupt: bool,
 }
 struct ProcessPool<T> {
     next_id: u32,
     empty_slots: u32,
     idle_processes: Vec<LocalProcess<T>>,
     active_processes: HashMap<u32, LocalProcess<T>>,
+    commit_to_process: HashMap<String, u32>,
     _marker: PhantomData<T>,
 }
 
 struct Stats {
     number_jobs: u32,
-    failed_tests: u32,
+    interrupted_tests: u32,
 }
 
 impl Stats {
     fn new() -> Self {
         Stats {
             number_jobs: 0,
-            failed_tests: 0,
+            interrupted_tests: 0,
         }
     }
 }
@@ -49,6 +51,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         empty_slots: threads,
         idle_processes: Vec::new(),
         active_processes: HashMap::new(),
+        commit_to_process: HashMap::new(),
         _marker: PhantomData,
     };
 
@@ -61,8 +64,12 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         match core.next_job(pool.idle_processes.len() as u32 + pool.empty_slots) {
             crate::regression::AlgorithmResponse::Job(commit) => {
                 let setup_time = Instant::now();
-                let process =
-                    load_process(&mut pool, repository, options.worktree_location.clone(), &commit);
+                let process = load_process(
+                    &mut pool,
+                    repository,
+                    options.worktree_location.clone(),
+                    &commit,
+                );
                 process.run(commit, send.clone(), script_path.to_string(), setup_time);
                 stats.number_jobs += 1;
             }
@@ -82,17 +89,18 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
 
         if wait || (pool.idle_processes.is_empty() && pool.empty_slots == 0) {
             match recv_response(&recv, &mut pool) {
-                Ok((pid, commit, res)) => match res {
-                    Ok((result, times)) => {
-                        benchmarks_times.push((pid, commit.clone(), times));
-                        core.add_result(commit, result);
+                Ok(res) => {
+                    if !process_response(
+                        res,
+                        core,
+                        &mut benchmarks_times,
+                        &mut stats,
+                        &mut pool,
+                        options.do_interrupt,
+                    ) {
+                        break;
                     }
-                    Err(err) => {
-                        eprintln!("{} execution failed: {:?}\n", commit, err);
-                        core.add_result(commit, TestResult::Ignore);
-                        stats.failed_tests += 1;
-                    }
-                },
+                }
                 Err(err) => {
                     eprintln!("{}", err);
                     break;
@@ -100,27 +108,35 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
             }
         }
 
+        let mut stop = false;
         loop {
             match try_recv_response(&recv, &mut pool) {
-                Ok((pid, commit, res)) => match res {
-                    Ok((result, times)) => {
-                        benchmarks_times.push((pid, commit.clone(), times));
-                        core.add_result(commit, result);
+                Ok(res) => {
+                    if !process_response(
+                        res,
+                        core,
+                        &mut benchmarks_times,
+                        &mut stats,
+                        &mut pool,
+                        options.do_interrupt,
+                    ) {
+                        stop = true;
+                        break;
                     }
-                    Err(err) => {
-                        eprintln!("{} execution failed: {:?}\n", commit, err);
-                        core.add_result(commit, TestResult::Ignore);
-                        stats.failed_tests += 1;
-                    }
-                },
+                }
                 Err(err) => match err {
                     TryRecvError::Empty => break,
                     TryRecvError::Disconnected => {
                         eprintln!("Receiver disconnected!");
+                        stop = true;
                         break;
                     }
                 },
             }
+        }
+
+        if stop {
+            break;
         }
     } //END LOOP
 
@@ -130,7 +146,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
     }
 
     //Wait for active processes to be done and clean up.
-    println!("Wait for active processes to finish!");
+    eprintln!("Wait for active processes to finish!");
     while !pool.active_processes.is_empty() {
         let _ = recv_response(&recv, &mut pool);
     }
@@ -140,10 +156,13 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
 
     let points = core.results();
 
-    println!("\n---- STATS ----\n");
+    println!("---- STATS ----\n");
     println!("Commits tested: {}", stats.number_jobs);
     println!("Regression points: {}", points.len());
-    println!("Runtime (seconds): {}", overall_execution_time.as_secs_f32());
+    println!(
+        "Runtime (seconds): {}",
+        overall_execution_time.as_secs_f32()
+    );
     println!("\n----\n");
 
     for point in points {
@@ -152,8 +171,46 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         if let Some(message) = T::get_commit_info(repository, &point.regression_point) {
             println!("{}", message);
         }
-        println!("----\n");
+        println!("----");
     }
+}
+
+fn process_response<'a, S: RegressionAlgorithm, T: DVCS>(
+    (pid, commit, res): ProcessResponse,
+    core: &mut S,
+    benchmarks_times: &mut Vec<(u32, String, ExecutionData)>,
+    stats: &mut Stats,
+    pool: &'a mut ProcessPool<T>,
+    do_interrupt: bool,
+) -> bool {
+    match res {
+        Ok((result, times)) => {
+            benchmarks_times.push((pid, commit.clone(), times));
+            core.add_result(commit, result);
+        }
+        Err(err) => match err {
+            ProcessError::Interrupt => {
+                eprintln!("{} interrupted", commit);
+                stats.interrupted_tests += 1;
+            }
+            ProcessError::Code => {
+                eprintln!("{} stops execution via exit code", commit);
+                return false;
+            }
+            _ => {
+                eprintln!("{} query failed: {:?}", commit, err);
+                return false;
+            }
+        },
+    };
+
+    if do_interrupt {
+        for commit in core.interrupts() {
+            interrupt(&commit, pool);
+        }
+    }
+
+    return true;
 }
 
 fn load_process<'a, T: DVCS>(
@@ -161,7 +218,7 @@ fn load_process<'a, T: DVCS>(
     repository: &str,
     worktree_location: Option<String>,
     commit: &str,
-) -> &'a LocalProcess<T> {
+) -> &'a mut LocalProcess<T> {
     let available_process = if !pool.idle_processes.is_empty() {
         get_nearest_process(pool, commit)
     } else if pool.empty_slots > 0 {
@@ -174,8 +231,9 @@ fn load_process<'a, T: DVCS>(
     };
 
     let id = available_process.id;
+    pool.commit_to_process.insert(commit.to_string(), id);
     pool.active_processes.insert(id, available_process);
-    pool.active_processes.get(&id).unwrap()
+    pool.active_processes.get_mut(&id).unwrap()
 }
 
 fn get_nearest_process<'a, T: DVCS>(pool: &'a mut ProcessPool<T>, commit: &str) -> LocalProcess<T> {
@@ -204,7 +262,7 @@ fn try_recv_response<T: DVCS>(
     TryRecvError,
 > {
     let res = recv.try_recv()?;
-    deactivate_process(res.0, pool);
+    deactivate_process(res.0, &res.1, pool);
     Ok(res)
 }
 
@@ -220,15 +278,26 @@ fn recv_response<T: DVCS>(
     RecvError,
 > {
     let res = recv.recv()?;
-    deactivate_process(res.0, pool);
+    deactivate_process(res.0, &res.1, pool);
     Ok(res)
 }
 
-fn deactivate_process<T: DVCS>(id: u32, pool: &mut ProcessPool<T>) {
+fn deactivate_process<T: DVCS>(id: u32, commit: &str, pool: &mut ProcessPool<T>) {
     let process = pool
         .active_processes
         .remove(&id)
         .expect(format!("Couldn't find process {} in pool of active processes!", id).as_str());
+    pool.commit_to_process.remove(commit);
 
     pool.idle_processes.push(process);
+}
+
+fn interrupt<T: DVCS>(commit: &str, pool: &mut ProcessPool<T>) {
+    let id_ = pool.commit_to_process.get(commit);
+    if let Some(id) = id_ {
+        let process_ = pool.active_processes.get_mut(&id);
+        if let Some(process) = process_ {
+            process.interrupt();
+        }
+    }
 }

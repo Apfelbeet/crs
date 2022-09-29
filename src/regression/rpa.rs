@@ -28,6 +28,7 @@ pub struct RPA<S: PathAlgorithm + RegressionAlgorithm, E> {
     current_search: Option<S>,
     regressions: Vec<RegressionPoint>,
     settings: Settings,
+    interrupts: Vec<String>,
 }
 
 impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<S, E> {
@@ -68,6 +69,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<S, E> {
             shortest_paths: shortest_path,
             current_search: None,
             regressions: vec![],
+            interrupts: vec![],
             settings,
         }
     }
@@ -159,6 +161,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E
         let mut remove = false;
         if let Some(search) = self.current_search.as_mut() {
             search.add_result(commit_hash, result);
+            self.interrupts.extend(search.interrupts().iter().cloned());
             if search.done() {
                 remove = true;
                 for reg in search.results() {
@@ -208,7 +211,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E
                 .collect::<VecDeque<String>>();
 
             let search = S::new(path);
-            println!(
+            eprintln!(
                 "RPA - Algorithm:\npicked new path\n{:?} to {:?}\n----\n",
                 self.commits.graph.node_weight(start).unwrap().hash,
                 self.commits.graph.node_weight(end).unwrap().hash
@@ -217,6 +220,12 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E
         }
 
         self.current_search.as_mut().unwrap().next_job(capacity)
+    }
+
+    fn interrupts(&mut self) -> Vec<String> {
+        let i = self.interrupts.clone();
+        self.interrupts = vec![];
+        i
     }
 
     fn done(&self) -> bool {

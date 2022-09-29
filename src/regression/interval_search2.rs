@@ -18,6 +18,7 @@ pub struct IntervalSearch {
     pub step: Option<Step>,
     pub regression: Option<String>,
     pub results: HashMap<String, TestResult>,
+    pub interrupts: Vec<String>,
 }
 
 pub struct Step {
@@ -48,6 +49,7 @@ impl IntervalSearch {
             regression: None,
             step: None,
             results,
+            interrupts: vec![],
         };
 
         bin.check_done();
@@ -77,7 +79,7 @@ impl IntervalSearch {
                 // left and right boarder as a job to this process.)
                 //
                 // This variant only continues with the next step if all
-                // processes are done. 
+                // processes are done.
                 if step.job_await.is_empty() {
                     let jobs_len = step.jobs.len();
                     let (lowest_valid, i) = self
@@ -110,6 +112,8 @@ impl IntervalSearch {
                             self.right = reg_point;
                         }
                         self.left = lowest_valid.to_string();
+                        self.interrupts
+                            .extend(self.step.as_ref().unwrap().job_await.iter().cloned());
                         self.clean_path();
                         self.step = None;
                         self.check_done();
@@ -156,6 +160,12 @@ impl IntervalSearch {
                 }
             }
         }
+    }
+    
+    pub fn interrupts(&mut self) -> Vec<String> {
+        let i = self.interrupts.clone();
+        self.interrupts = vec![];
+        i
     }
 
     pub fn done(&self) -> bool {
