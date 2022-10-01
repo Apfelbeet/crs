@@ -26,7 +26,7 @@ impl DVCS for Git {
             .args(["rev-list", "--parents"])
             .args(targets)
             .arg("--not")
-            .args(start);
+            .args(start.clone());
 
         let rev_list = match run_command_sync(repository, &mut command) {
             Err(err) => {
@@ -46,7 +46,7 @@ impl DVCS for Git {
             }
         };
 
-        return parse_rev_list(rev_list?);
+        return parse_rev_list(rev_list?, &start[0]);
     }
 
     fn create_worktree(
@@ -230,7 +230,7 @@ fn print_error(msg: &str) {
     eprintln!("Git Error: {}", msg);
 }
 
-fn parse_rev_list(rev_list: String) -> Result<Radag<String, ()>, ()> {
+fn parse_rev_list(rev_list: String, start: &str) -> Result<Radag<String, ()>, ()> {
     let mut indexation = HashMap::new();
     let mut graph = Dag::new();
 
@@ -264,7 +264,7 @@ fn parse_rev_list(rev_list: String) -> Result<Radag<String, ()>, ()> {
 
     let roots: Vec<&String> = indexation
         .iter()
-        .filter(|(_, i)| graph.parents(i.clone().clone()).iter(&graph).count() == 0)
+        .filter(|(hash, i)| graph.parents(i.clone().clone()).iter(&graph).count() == 0 && hash == &start)
         .map(|(hash, _)| hash)
         .collect();
 
