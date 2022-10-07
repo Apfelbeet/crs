@@ -3,7 +3,7 @@ mod manage;
 mod regression;
 mod process;
 mod graph;
-mod benchmark;
+mod log;
 
 use dvcs::{git::Git, DVCS};
 use manage::Options;
@@ -38,8 +38,8 @@ pub struct Args {
     #[clap(long, value_parser, value_name = "MODE", default_value = "rpa-binary")]
     pub search_mode: String,
 
-    #[clap(parse(from_os_str), long, value_name = "DIRECTORY")]
-    pub benchmark: Option<std::path::PathBuf>,
+    #[clap(parse(from_os_str), short, long, value_name = "DIRECTORY")]
+    pub log: Option<std::path::PathBuf>,
 
     #[clap(long, action)]
     pub interrupt: bool,
@@ -49,7 +49,7 @@ fn main() {
 
     let args = Args::parse();
 
-    let benchmark_location = args.benchmark.as_ref().map(|b_dir| benchmark::write_header(b_dir, &args));
+    let log_location = args.log.as_ref().map(|b_dir| log::write_header(b_dir, &args));
 
     let worktree_location = match args.worktree_location {
         Some(path) => Some(path.display().to_string()),
@@ -58,7 +58,7 @@ fn main() {
 
     let options = Options {
         worktree_location,
-        benchmark_location,
+        log_location,
         do_interrupt: args.interrupt,
     };
 

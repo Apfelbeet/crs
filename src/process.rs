@@ -2,7 +2,7 @@ use crate::dvcs::{run_script_async, Worktree, DVCS};
 use crate::regression::TestResult;
 use std::marker::PhantomData;
 use std::sync::mpsc;
-use std::thread;
+use std::{thread, fmt};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -14,6 +14,18 @@ pub enum ProcessError {
     Interrupt,
 }
 
+impl fmt::Display for ProcessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            crate::process::ProcessError::DVCSError(s) => write!(f, "DVCS Error {}", s),
+            crate::process::ProcessError::ScriptError(s) => write!(f, "Script Error {}", s),
+            crate::process::ProcessError::TimeError => write!(f, "Time Error"),
+            crate::process::ProcessError::Code => write!(f, "Exit Code"),
+            crate::process::ProcessError::Interrupt => write!(f, "Interrupt"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ExecutionData {
     pub setup: Duration,
@@ -22,11 +34,11 @@ pub struct ExecutionData {
     pub diff: u32,
 }
 
-pub type ProcessResponse = (
-    u32,
-    String,
-    Result<(TestResult, ExecutionData), ProcessError>,
-);
+pub struct ProcessResponse {
+    pub pid: u32,
+    pub commit: String,
+    pub result: Result<(TestResult, ExecutionData), ProcessError>,
+}
 
 pub struct LocalProcess<S> {
     pub id: u32,
@@ -86,7 +98,11 @@ impl<S: DVCS> LocalProcess<S> {
             if S::checkout(&worktree, commit.as_str()).is_err() {
                 let message = format!("{} couldn't checkout {}", id, commit);
                 trans
-                    .send((id, commit, Err(ProcessError::DVCSError(message))))
+                    .send(ProcessResponse {
+                        pid: id,
+                        commit,
+                        result: Err(ProcessError::DVCSError(message)),
+                    })
                     .expect("transmitter broken!");
                 return;
             }
@@ -139,12 +155,12 @@ impl<S: DVCS> LocalProcess<S> {
                 } else {
                     TestResult::False
                 };
-    
+
                 let after_query_time = Instant::now();
                 let checkout_duration = after_setup_time.checked_duration_since(setup_time);
                 let query_duration = after_query_time.checked_duration_since(after_setup_time);
                 let overall_duration = after_query_time.checked_duration_since(setup_time);
-    
+
                 if checkout_duration.is_none()
                     || query_duration.is_none()
                     || overall_duration.is_none()
@@ -158,11 +174,15 @@ impl<S: DVCS> LocalProcess<S> {
                         diff: distance,
                     };
                     trans
-                        .send((id, commit.clone(), Ok((result, execution_time))))
+                        .send(ProcessResponse {
+                            pid: id,
+                            commit: commit.clone(),
+                            result: Ok((result, execution_time)),
+                        })
                         .expect("transmitter broken!");
                 };
                 break;
-            };
+            }
         });
     }
 
@@ -195,6 +215,10 @@ fn error(
     message: ProcessError,
 ) {
     transmitter
-        .send((id, commit.to_string(), Err(message)))
+        .send(ProcessResponse {
+            pid: id,
+            commit: commit.to_string(),
+            result: Err(message),
+        })
         .expect("transmitter broken!");
 }

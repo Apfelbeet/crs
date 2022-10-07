@@ -4,11 +4,12 @@ use priority_queue::DoublePriorityQueue;
 
 use crate::graph::length_of_path;
 
-use super::{TestResult, RegressionPoint};
+use super::{RegressionPoint, TestResult};
 
 pub const NAME: &str = "interval_search3.rs";
 
-pub type SampleFunction = fn(&VecDeque<String>, &String, &String, usize, usize) -> Result<VecDeque<String>, ()>;
+pub type SampleFunction =
+    fn(&VecDeque<String>, &String, &String, usize, usize) -> Result<VecDeque<String>, ()>;
 pub struct IntervalSearch {
     pub path: VecDeque<String>,
     pub target: String,
@@ -18,7 +19,7 @@ pub struct IntervalSearch {
     pub regression: Option<String>,
     pub results: HashMap<String, TestResult>,
     pub interrupts: Vec<String>,
-    capacity: usize, 
+    capacity: usize,
 }
 
 pub struct Step {
@@ -90,13 +91,7 @@ impl IntervalSearch {
                 let mut regression = None;
 
                 let mut incomplete = false;
-                for hash in self
-                    .step
-                    .as_ref()
-                    .unwrap()
-                    .jobs
-                    .range(i.clone()..jobs_len)
-                {
+                for hash in self.step.as_ref().unwrap().jobs.range(i.clone()..jobs_len) {
                     match self.results.get(hash) {
                         Some(res) => {
                             if res == &TestResult::False {
@@ -105,8 +100,8 @@ impl IntervalSearch {
                             }
                         }
                         None => {
-                                incomplete = true;
-                                break;
+                            incomplete = true;
+                            break;
                         }
                     }
                 }
@@ -134,10 +129,16 @@ impl IntervalSearch {
         take_samples: SampleFunction,
     ) -> super::AlgorithmResponse {
         self.capacity = std::cmp::max(self.capacity, capacity);
-        
+
         if self.step.is_none() {
-            let jobs = take_samples(&self.path, &self.left, &self.right, self.capacity, iteration)
-                .expect("couldn't take samples!");
+            let jobs = take_samples(
+                &self.path,
+                &self.left,
+                &self.right,
+                self.capacity,
+                iteration,
+            )
+            .expect("couldn't take samples!");
 
             let step = Step {
                 job_queue: VecDeque::from(jobs.clone()),

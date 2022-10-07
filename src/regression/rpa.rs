@@ -53,6 +53,14 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<S, E> {
             &HashSet::from_iter(targets_index.iter().cloned()),
         );
 
+        eprintln!(
+            "----
+RPA initialized
+{} Commits
+----",
+            annotated.graph.node_count()
+        );
+
         RPA {
             commits: annotated,
             remaining_targets: targets_index,
@@ -200,11 +208,17 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E
                 })
                 .collect::<VecDeque<String>>();
 
+            let len = path.len();
             let search = S::new(path);
             eprintln!(
-                "RPA - Algorithm:\npicked new path\n{:?} to {:?}\n----\n",
+                "RPA - Algorithm:
+picked new path
+{:?} to {:?}
+length: {}
+----",
                 self.commits.graph.node_weight(start).unwrap().hash,
-                self.commits.graph.node_weight(end).unwrap().hash
+                self.commits.graph.node_weight(end).unwrap().hash,
+                len,
             );
             self.current_search = Some(search);
         }

@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, fmt};
 
 pub mod rpa;
 pub mod binary_search;
@@ -21,6 +21,16 @@ pub enum TestResult {
     True,
     False,
     Ignore,
+}
+
+impl fmt::Display for TestResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TestResult::True => write!(f, "True"),
+            TestResult::False => write!(f, "False"),
+            TestResult::Ignore => write!(f, "Ignore"),
+        }
+    }
 }
 
 #[derive(Debug)]
