@@ -70,7 +70,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
                     options.worktree_location.clone(),
                     &commit,
                 );
-                process.run(commit, send.clone(), script_path.to_string(), setup_time);
+                process.run(commit, send.clone(), script_path.to_string(), setup_time, options.log_location.as_ref());
                 stats.number_jobs += 1;
             }
             crate::regression::AlgorithmResponse::WaitForResult => {

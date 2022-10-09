@@ -22,7 +22,7 @@ pub struct TemporalLogData {
 
 pub fn write_header(directory: &std::path::PathBuf, args: &Args) -> std::path::PathBuf {
     let date = Utc::now();
-    let file_name = date.format("%Y%m%d_%H%M%S").to_string();
+    let directory_name = date.format("%Y%m%d_%H%M%S").to_string();
     let mut path = directory.clone();
 
     if !directory.is_dir() {
@@ -56,8 +56,11 @@ pid,commit,status,all,setup,query,distance
         args.start,
         args.targets
     );
-    path = path.join(file_name);
-    fs::write(&path, &header).expect("Couldn't create benchmark file!");
+
+    path = path.join(directory_name);
+    fs::create_dir(&path).expect("Couldn't create log directory!");
+
+    fs::write(&summary_path(&path), &header).expect("Couldn't create benchmark file!");
     path
 }
 
@@ -76,7 +79,10 @@ pub fn add_result(
     path: &std::path::PathBuf,
     log_data: &mut TemporalLogData,
 ) {
-    let mut file = OpenOptions::new().append(true).open(path).unwrap();
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(summary_path(&path))
+        .unwrap();
 
     match &result.result {
         Ok((res, exe_data)) => {
@@ -111,7 +117,10 @@ pub fn write_summary(
     path: &std::path::PathBuf,
     log_data: &mut TemporalLogData,
 ) {
-    let mut file = OpenOptions::new().append(true).open(path).unwrap();
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(summary_path(&path))
+        .unwrap();
 
     writeln!(&mut file, "---").unwrap();
 
@@ -143,4 +152,8 @@ pub fn write_summary(
         overall_duration.as_secs_f64()
     )
     .unwrap();
+}
+
+fn summary_path(path: &std::path::PathBuf) -> std::path::PathBuf {
+    path.join("summary")
 }

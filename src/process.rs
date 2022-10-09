@@ -66,11 +66,14 @@ impl<S: DVCS> LocalProcess<S> {
         trans: mpsc::Sender<ProcessResponse>,
         script_path: String,
         setup_time: Instant,
+        log_directory: Option<&std::path::PathBuf>,
     ) {
         let id = self.id;
         let worktree = self.worktree.clone();
         let (interrupt_transmitter, interrupt_receiver) = mpsc::channel();
         self.interrupt_transmitter = Some(interrupt_transmitter.clone());
+        let log_stdout = log_directory.map(|p| p.join(format!("{}_stdout", commit)));
+        let log_stderr = log_directory.map(|p| p.join(format!("{}_stderr", commit)));
 
         thread::spawn(move || {
             if interrupt_receiver.try_recv().is_ok() {
@@ -114,7 +117,8 @@ impl<S: DVCS> LocalProcess<S> {
 
             let after_setup_time = Instant::now();
 
-            let mut child = match run_script_async(&worktree.location, &script_path) {
+
+            let mut child = match run_script_async(&worktree.location, &script_path, log_stdout, log_stderr) {
                 Ok(child) => child,
                 Err(err) => {
                     scerror(&trans, id, commit, err.to_string());
