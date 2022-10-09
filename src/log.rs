@@ -39,7 +39,7 @@ no propagate: {},
 interrupt: {},
 search mode: {},
 scheduling: {}, 
-start: {},
+start: {:?},
 targets: {:?},
 ---
 pid,commit,status,all,setup,query,distance

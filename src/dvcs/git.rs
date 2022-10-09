@@ -1,5 +1,5 @@
 use crate::dvcs::DVCS;
-use crate::graph::Radag;
+use crate::graph::Adag;
 use daggy::{Dag, NodeIndex, Walker};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -18,15 +18,15 @@ impl DVCS for Git {
 
     fn commit_graph(
         repository: &str,
-        start: Vec<String>,
+        sources: Vec<String>,
         targets: Vec<String>,
-    ) -> Result<Radag<String, ()>, ()> {
+    ) -> Result<Adag<String, ()>, ()> {
         let mut command = Command::new("git");
         command
             .args(["rev-list", "--parents"])
-            .args(targets)
+            .args(targets.clone())
             .arg("--not")
-            .args(start.clone());
+            .args(sources.clone());
 
         let rev_list = match run_command_sync(repository, &mut command) {
             Err(err) => {
@@ -46,7 +46,7 @@ impl DVCS for Git {
             }
         };
 
-        return parse_rev_list(rev_list?, &start[0]);
+        return parse_rev_list(rev_list?, &sources, &targets);
     }
 
     fn create_worktree(
@@ -230,7 +230,7 @@ fn print_error(msg: &str) {
     eprintln!("Git Error: {}", msg);
 }
 
-fn parse_rev_list(rev_list: String, start: &str) -> Result<Radag<String, ()>, ()> {
+fn parse_rev_list(rev_list: String, source_hashes: &Vec<String>, targets: &Vec<String>) -> Result<Adag<String, ()>, ()> {
     let mut indexation = HashMap::new();
     let mut graph = Dag::new();
 
@@ -262,23 +262,21 @@ fn parse_rev_list(rev_list: String, start: &str) -> Result<Radag<String, ()>, ()
         }
     }
 
-    let roots: Vec<&String> = indexation
+    let sources: Vec<String> = indexation
         .iter()
-        .filter(|(hash, i)| graph.parents(i.clone().clone()).iter(&graph).count() == 0 && hash == &start)
-        .map(|(hash, _)| hash)
+        .filter(|(hash, i)| graph.parents(i.clone().clone()).iter(&graph).count() == 0 && source_hashes.contains(hash))
+        .map(|(hash, _)| hash.to_string())
         .collect();
 
-    if roots.len() == 0 {
-        eprintln!("Graph has no root!");
-        return Err(());
-    } else if roots.len() > 1 {
-        eprintln!("More than one root is not supported!");
+    if sources.len() == 0 {
+        eprintln!("Graph has no source!");
         return Err(());
     }
 
     Ok(
-        Radag {
-            root: roots[0].to_string(),
+        Adag {
+            sources: sources,
+            targets: targets.clone(),
             graph,
             indexation,
         }

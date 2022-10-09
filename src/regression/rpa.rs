@@ -6,7 +6,7 @@ use std::{
 
 use daggy::{NodeIndex, Walker};
 
-use crate::graph::{shortest_path, Radag};
+use crate::graph::{shortest_path, Adag};
 
 use super::{PathAlgorithm, RegressionAlgorithm, RegressionPoint, TestResult};
 
@@ -22,7 +22,7 @@ pub struct RPANode {
 }
 
 pub struct RPA<S: PathAlgorithm + RegressionAlgorithm, E> {
-    commits: Radag<RPANode, E>,
+    commits: Adag<RPANode, E>,
     shortest_paths: DoublePriorityQueue<(NodeIndex, NodeIndex), u32>,
     remaining_targets: HashSet<NodeIndex>,
     current_search: Option<S>,
@@ -31,27 +31,20 @@ pub struct RPA<S: PathAlgorithm + RegressionAlgorithm, E> {
     interrupts: Vec<String>,
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<S, E> {
+impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::fmt::Debug> RPA<S, E> {
     pub fn new(
-        dvcs: Radag<String, E>,
-        root: String,
-        targets: Vec<String>,
+        input_graph: Adag<String, E>,
         settings: Settings,
     ) -> Self {
-        let root_index = dvcs.index(&root);
-
         let targets_index = HashSet::from_iter(
-            targets
+            input_graph.targets
                 .iter()
-                .filter_map(|hash| dvcs.indexation.get(hash))
+                .filter_map(|hash| input_graph.indexation.get(hash))
                 .map(|reference| reference.clone()),
         );
 
-        let (annotated, shortest_path) = annotate_graph(
-            dvcs,
-            root_index.clone(),
-            &HashSet::from_iter(targets_index.iter().cloned()),
-        );
+        let annotated = annotate_graph(input_graph);
+        let shortest_path = calculate_distances(&annotated);
 
         eprintln!(
             "----
@@ -73,71 +66,79 @@ RPA initialized
     }
 }
 
-fn annotate_graph<E: Clone>(
-    dvcs: Radag<String, E>,
-    root: NodeIndex,
-    targets: &HashSet<NodeIndex>,
-) -> (
-    Radag<RPANode, E>,
-    DoublePriorityQueue<(NodeIndex, NodeIndex), u32>,
-) {
-    let mut shortest_path = DoublePriorityQueue::new();
-    let mut distance = HashMap::new();
-    let mut queue = VecDeque::new();
-
-    queue.push_back(root);
-    distance.insert(root, 0);
-
-    while !queue.is_empty() {
-        let current_index = queue.pop_front().unwrap();
-        let current_distance = distance
-            .get(&current_index)
-            .expect("Distance of already visited node is missing!")
-            .clone();
-
-        for (_, child_index) in dvcs.graph.children(current_index.clone()).iter(&dvcs.graph) {
-            match distance.get(&child_index) {
-                Some(child_distance) => {
-                    let shorter_distance = min(child_distance.clone(), current_distance + 1);
-                    distance.insert(child_index, shorter_distance);
-
-                    if targets.contains(&child_index) {
-                        shortest_path.change_priority(&(root, child_index), shorter_distance);
-                    }
-                }
-                None => {
-                    distance.insert(child_index, current_distance + 1);
-                    queue.push_back(child_index);
-                    if targets.contains(&child_index) {
-                        shortest_path.push((root, child_index), current_distance + 1);
-                    }
-                }
-            };
-        }
-    }
-
+fn annotate_graph<E: Clone>(dvcs: Adag<String, E>) -> Adag<RPANode, E> {
     let mapped = dvcs.graph.map(
-        |index, node| RPANode {
-            result: if index == root {
+        |index, hash| {
+            let is_source = dvcs.sources.contains(hash);
+            let is_target = dvcs.targets.contains(hash);
+
+            if is_source && is_target {
+                panic!("{} is a source as well as a target!", hash);
+            }
+
+            let result = if is_source {
                 Some(TestResult::True)
-            } else if targets.contains(&index) {
+            } else if is_target {
                 Some(TestResult::False)
             } else {
                 None
-            },
-            hash: node.to_string(),
+            };
+
+            RPANode {
+                hash: hash.to_string(),
+                result,
+            }
         },
         |_, edge| edge.clone(),
     );
 
-    (
-        Radag {
-            root: dvcs.root,
-            graph: mapped,
-            indexation: dvcs.indexation,
-        },
-        shortest_path,
-    )
+    Adag {
+        sources: dvcs.sources,
+        targets: dvcs.targets,
+        graph: mapped,
+        indexation: dvcs.indexation,
+    }
+}
+
+fn calculate_distances<N: Clone, E>(adag: &Adag<N, E>) -> DoublePriorityQueue<(NodeIndex, NodeIndex), u32> {
+    let mut shortest_path = DoublePriorityQueue::new();
+    let targets_indices: HashSet<NodeIndex> = HashSet::from_iter(adag.targets.iter().map(|hash| adag.index(hash)));
+
+    for source in adag.sources.clone() {
+        let source_index = adag.index(&source);
+        let mut distance = HashMap::new();
+        let mut queue = VecDeque::new();
+
+        queue.push_back(source_index);
+        distance.insert(source_index, 0);
+
+        while !queue.is_empty() {
+            let current_index = queue.pop_front().unwrap();
+            let current_distance = distance[&current_index];
+
+            let children = adag.graph.children(current_index.clone()).iter(&adag.graph);
+            for (_, child_index) in children {
+                match distance.get(&child_index) {
+                    Some(child_distance) => {
+                        let shorter_distance = min(child_distance.clone(), current_distance + 1);
+                        distance.insert(child_index, shorter_distance);
+
+                        if targets_indices.contains(&child_index) {
+                            shortest_path.change_priority(&(source_index, child_index), shorter_distance);
+                        }
+                    },
+                    None => {
+                        distance.insert(child_index, current_distance + 1);
+                        queue.push_back(child_index);
+                        if targets_indices.contains(&child_index) {
+                            shortest_path.push((source_index, child_index), current_distance + 1);
+                        }
+                    },
+                }
+            }
+        }
+    }
+    shortest_path
 }
 
 impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E> {
