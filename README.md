@@ -19,6 +19,8 @@ crs <REPOSITORY> <TEST> [OPTIONS] --start <START>  [-- <TARGETS>...]
 |--processes | -p | Amount of threads that can be spawned. | no | 1 |
 |--worktree-location |  | By default *crs* will spawn all worktrees in a subdirectory of the source repository. You can change that location by specifying another path here.  | no |  |
 |--search-mode |   | *crs* implements multiple search modes. List of supported search modes: rpa-binary, rpa-linear, rpa-multi | no | rpa-binary |
+|--interrupt| | | no | false |
+|--log| -l | Takes a path as an argument. Creates directory and writes files with all stdout and stderr output of the processes and a summary of all queries (time, result, ...) | no | |
 |--no-propagate |   | Disables propagation of regression points.  | no | |
 
 The default configuration would look like:
@@ -34,9 +36,10 @@ crs <path to repository> <path to script> \
 
 The test script will be executed whenever *crs* queries a commit. For that the
 script is executed in the root directory of the responsible worktree for that
-commit. If the script exits with code 0, the commit is considered as *valid*,
-otherwise as *invalid*. Don't forget to specify the interpreter in the first
-line.
+commit. The exit code determines the result for the test. Exit with 0: commit is
+valid, 1-127 (without 125) is invalid, 125 is untestable (commit will be
+ignored) and any other value will stop *crs*. Don't forget to specify the
+interpreter in the first line.
 
 So you script might follow this structure:
 ```sh

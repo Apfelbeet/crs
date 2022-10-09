@@ -47,6 +47,7 @@ pub struct Args {
 
 fn main() {
 
+    
     let args = Args::parse();
 
     let log_location = args.log.as_ref().map(|b_dir| log::write_header(b_dir, &args));
