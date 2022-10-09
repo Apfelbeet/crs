@@ -1,7 +1,7 @@
 use crate::dvcs::DVCS;
 use crate::log::{self, TemporalLogData};
 use crate::process::{LocalProcess, ProcessError, ProcessResponse};
-use crate::regression::{RegressionAlgorithm};
+use crate::regression::RegressionAlgorithm;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::mpsc::{self, RecvError, TryRecvError};
@@ -70,7 +70,13 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
                     options.worktree_location.clone(),
                     &commit,
                 );
-                process.run(commit, send.clone(), script_path.to_string(), setup_time, options.log_location.as_ref());
+                process.run(
+                    commit,
+                    send.clone(),
+                    script_path.to_string(),
+                    setup_time,
+                    options.log_location.as_ref(),
+                );
                 stats.number_jobs += 1;
             }
             crate::regression::AlgorithmResponse::WaitForResult => {
@@ -90,14 +96,8 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         if wait || (pool.idle_processes.is_empty() && pool.empty_slots == 0) {
             match recv_response(&recv, &mut pool) {
                 Ok(res) => {
-                    if !process_response(
-                        &res,
-                        core,
-                        &mut stats,
-                        &mut pool,
-                        &options,
-                        &mut log_data,
-                    ) {
+                    if !process_response(&res, core, &mut stats, &mut pool, &options, &mut log_data)
+                    {
                         break;
                     }
                 }
@@ -112,14 +112,8 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         loop {
             match try_recv_response(&recv, &mut pool) {
                 Ok(res) => {
-                    if !process_response(
-                        &res,
-                        core,
-                        &mut stats,
-                        &mut pool,
-                        &options,
-                        &mut log_data,
-                    ) {
+                    if !process_response(&res, core, &mut stats, &mut pool, &options, &mut log_data)
+                    {
                         stop = true;
                         break;
                     }
@@ -153,9 +147,13 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
 
     let points = core.results();
     if let Some(log_location) = options.log_location {
-        log::write_summary(&overall_execution_time, &points, &log_location, &mut log_data);
+        log::write_summary(
+            &overall_execution_time,
+            &points,
+            &log_location,
+            &mut log_data,
+        );
     }
-
 
     println!("---- STATS ----\n");
     println!("Commits tested: {}", stats.number_jobs);
@@ -187,9 +185,19 @@ fn process_response<'a, S: RegressionAlgorithm, T: DVCS>(
     if let Some(path) = options.log_location.clone() {
         log::add_result(&response, &path, log_data);
     }
-    
+
     match response.result.clone() {
-        Ok((result, _)) => {
+        Ok((result, data)) => {
+            eprintln!(
+                "Query finished:
+{} 
+{} 
+{}s
+--",
+                response.commit,
+                result,
+                data.all.as_secs_f32(),
+            );
             core.add_result(response.commit.clone(), result);
         }
         Err(err) => match err {
