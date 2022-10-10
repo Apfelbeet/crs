@@ -1,4 +1,5 @@
-use daggy::{petgraph::graph, Dag, EdgeIndex, NodeIndex, Walker};
+use daggy::{Dag, NodeIndex, Walker};
+use priority_queue::DoublePriorityQueue;
 use std::{
     cmp::{max, min},
     collections::{HashMap, HashSet, VecDeque},
@@ -24,6 +25,47 @@ impl<N: Clone,E> Adag<N, E>  {
 
     pub fn index(&self, hash: &String) -> NodeIndex {
         self.indexation.get(hash).expect(&format!("{} is not a node in the graph!", hash)).clone()
+    }
+
+    pub fn calculate_distances(&self) -> DoublePriorityQueue<(NodeIndex, NodeIndex), u32> {
+        let mut shortest_path = DoublePriorityQueue::new();
+        let targets_indices: HashSet<NodeIndex> = HashSet::from_iter(self.targets.iter().map(|hash| self.index(hash)));
+    
+        for source in self.sources.clone() {
+            let source_index = self.index(&source);
+            let mut distance = HashMap::new();
+            let mut queue = VecDeque::new();
+    
+            queue.push_back(source_index);
+            distance.insert(source_index, 0);
+    
+            while !queue.is_empty() {
+                let current_index = queue.pop_front().unwrap();
+                let current_distance = distance[&current_index];
+    
+                let children = self.graph.children(current_index.clone()).iter(&self.graph);
+                for (_, child_index) in children {
+                    match distance.get(&child_index) {
+                        Some(child_distance) => {
+                            let shorter_distance = min(child_distance.clone(), current_distance + 1);
+                            distance.insert(child_index, shorter_distance);
+    
+                            if targets_indices.contains(&child_index) {
+                                shortest_path.change_priority(&(source_index, child_index), shorter_distance);
+                            }
+                        },
+                        None => {
+                            distance.insert(child_index, current_distance + 1);
+                            queue.push_back(child_index);
+                            if targets_indices.contains(&child_index) {
+                                shortest_path.push((source_index, child_index), current_distance + 1);
+                            }
+                        },
+                    }
+                }
+            }
+        }
+        shortest_path
     }
 }
 

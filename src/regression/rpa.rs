@@ -1,7 +1,6 @@
 use priority_queue::DoublePriorityQueue;
 use std::{
-    cmp::min,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
 };
 
 use daggy::{NodeIndex, Walker};
@@ -44,7 +43,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::fmt::Debug> RPA<S, 
         );
 
         let annotated = annotate_graph(input_graph);
-        let shortest_path = calculate_distances(&annotated);
+        let shortest_path = annotated.calculate_distances();
 
         eprintln!(
             "----
@@ -68,7 +67,7 @@ RPA initialized
 
 fn annotate_graph<E: Clone>(dvcs: Adag<String, E>) -> Adag<RPANode, E> {
     let mapped = dvcs.graph.map(
-        |index, hash| {
+        |_, hash| {
             let is_source = dvcs.sources.contains(hash);
             let is_target = dvcs.targets.contains(hash);
 
@@ -100,46 +99,7 @@ fn annotate_graph<E: Clone>(dvcs: Adag<String, E>) -> Adag<RPANode, E> {
     }
 }
 
-fn calculate_distances<N: Clone, E>(adag: &Adag<N, E>) -> DoublePriorityQueue<(NodeIndex, NodeIndex), u32> {
-    let mut shortest_path = DoublePriorityQueue::new();
-    let targets_indices: HashSet<NodeIndex> = HashSet::from_iter(adag.targets.iter().map(|hash| adag.index(hash)));
 
-    for source in adag.sources.clone() {
-        let source_index = adag.index(&source);
-        let mut distance = HashMap::new();
-        let mut queue = VecDeque::new();
-
-        queue.push_back(source_index);
-        distance.insert(source_index, 0);
-
-        while !queue.is_empty() {
-            let current_index = queue.pop_front().unwrap();
-            let current_distance = distance[&current_index];
-
-            let children = adag.graph.children(current_index.clone()).iter(&adag.graph);
-            for (_, child_index) in children {
-                match distance.get(&child_index) {
-                    Some(child_distance) => {
-                        let shorter_distance = min(child_distance.clone(), current_distance + 1);
-                        distance.insert(child_index, shorter_distance);
-
-                        if targets_indices.contains(&child_index) {
-                            shortest_path.change_priority(&(source_index, child_index), shorter_distance);
-                        }
-                    },
-                    None => {
-                        distance.insert(child_index, current_distance + 1);
-                        queue.push_back(child_index);
-                        if targets_indices.contains(&child_index) {
-                            shortest_path.push((source_index, child_index), current_distance + 1);
-                        }
-                    },
-                }
-            }
-        }
-    }
-    shortest_path
-}
 
 impl<S: PathAlgorithm + RegressionAlgorithm, E> RegressionAlgorithm for RPA<S, E> {
     fn add_result(&mut self, commit_hash: String, result: TestResult) {
