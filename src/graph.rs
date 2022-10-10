@@ -1,10 +1,13 @@
-use daggy::{Dag, NodeIndex, Walker};
+use daggy::{Dag, EdgeIndex, NodeIndex, Walker};
 use priority_queue::DoublePriorityQueue;
+use std::hash::Hash;
 use std::{
     cmp::{max, min},
     collections::{HashMap, HashSet, VecDeque},
 };
-use std::hash::Hash;
+
+use crate::regression::TestResult;
+use crate::regression::rpa_search::RPANode;
 
 #[derive(Debug, Clone)]
 pub struct Adag<N, E> {
@@ -14,192 +17,215 @@ pub struct Adag<N, E> {
     pub indexation: HashMap<String, NodeIndex>,
 }
 
-impl<N: Clone,E> Adag<N, E>  {
+impl<N: Clone, E: Clone> Adag<N, E> {
     pub fn node(&self, hash: &String) -> N {
-        self.graph.node_weight(self.index(hash)).expect("Radag seems corrupted!").clone()
+        self.graph
+            .node_weight(self.index(hash))
+            .expect("Radag seems corrupted!")
+            .clone()
     }
 
     pub fn node_from_index(&self, index: NodeIndex) -> N {
-        self.graph.node_weight(index.clone()).expect("Radag seems corrupted!").clone()
+        self.graph
+            .node_weight(index.clone())
+            .expect("Radag seems corrupted!")
+            .clone()
     }
 
     pub fn index(&self, hash: &String) -> NodeIndex {
-        self.indexation.get(hash).expect(&format!("{} is not a node in the graph!", hash)).clone()
+        self.indexation
+            .get(hash)
+            .expect(&format!("{} is not a node in the graph!", hash))
+            .clone()
+    }
+
+    pub fn hash_from_index(&self, index: NodeIndex) -> String {
+        let (k, v) = self.indexation.iter().find(|(k, v)| v == &&index).unwrap();
+        k.clone()
     }
 
     pub fn calculate_distances(&self) -> DoublePriorityQueue<(NodeIndex, NodeIndex), u32> {
         let mut shortest_path = DoublePriorityQueue::new();
-        let targets_indices: HashSet<NodeIndex> = HashSet::from_iter(self.targets.iter().map(|hash| self.index(hash)));
-    
+        let targets_indices: HashSet<NodeIndex> =
+            HashSet::from_iter(self.targets.iter().map(|hash| self.index(hash)));
+
         for source in self.sources.clone() {
             let source_index = self.index(&source);
             let mut distance = HashMap::new();
             let mut queue = VecDeque::new();
-    
+
             queue.push_back(source_index);
             distance.insert(source_index, 0);
-    
+
             while !queue.is_empty() {
                 let current_index = queue.pop_front().unwrap();
-                let current_distance = distance[&current_index];
-    
+                let current_distance: u32 = distance[&current_index];
+
                 let children = self.graph.children(current_index.clone()).iter(&self.graph);
                 for (_, child_index) in children {
                     match distance.get(&child_index) {
                         Some(child_distance) => {
-                            let shorter_distance = min(child_distance.clone(), current_distance + 1);
-                            distance.insert(child_index, shorter_distance);
-    
-                            if targets_indices.contains(&child_index) {
-                                shortest_path.change_priority(&(source_index, child_index), shorter_distance);
+                            if current_distance + 1 < child_distance.clone() {
+                                distance.insert(child_index, current_distance + 1);
+                                if targets_indices.contains(&child_index) {
+                                    shortest_path.change_priority(
+                                        &(source_index, child_index),
+                                        current_distance + 1,
+                                    );
+                                }
+                                queue.push_back(child_index);
                             }
-                        },
+                        }
                         None => {
                             distance.insert(child_index, current_distance + 1);
                             queue.push_back(child_index);
                             if targets_indices.contains(&child_index) {
-                                shortest_path.push((source_index, child_index), current_distance + 1);
+                                shortest_path
+                                    .push((source_index, child_index), current_distance + 1);
                             }
-                        },
+                        }
                     }
                 }
             }
         }
         shortest_path
     }
+
+    pub fn pruned(&self) -> Adag<N, E> {
+        prune(self, &self.sources, &self.targets)
+    }
 }
 
 // type KeypointEdge = u32;
 
-// #[derive(Debug, Clone, PartialEq)]
-// enum PruneDirection {
-//     Up,
-//     Down,
-// }
+#[derive(Debug, Clone, PartialEq)]
+enum PruneDirection {
+    Up,
+    Down,
+}
 
-// pub fn prune<E: Clone>(
-//     old_graph: &Adag<String, E>,
-//     roots: &Vec<String>,
-//     leaves: &Vec<String>,
-// ) -> Adag<String, E> {
-//     let top_down = prune_general(old_graph, roots, get_children, PruneDirection::Down);
-//     let new_graph = prune_general(&top_down, leaves, get_parents, PruneDirection::Up);
+pub fn prune<N: Clone, E: Clone>(
+    graph: &Adag<N, E>,
+    sources: &Vec<String>,
+    targets: &Vec<String>,
+) -> Adag<N, E> {
+    //Phase 1: start at the targets and mark all upwards reachable nodes.
 
-//     new_graph
-// }
+    let mut reachable_upwards: HashSet<NodeIndex> = HashSet::new();
+    let mut q: VecDeque<NodeIndex> = VecDeque::new();
 
-// fn get_children<E>(graph: &Dag<String, E>, node: NodeIndex) -> Vec<(EdgeIndex, NodeIndex)> {
-//     graph.children(node).iter(graph).collect()
-// }
+    for target in targets {
+        let target_index = graph.index(target);
+        reachable_upwards.insert(target_index);
+        q.push_back(target_index);
+    }
 
-// fn get_parents<E>(graph: &Dag<String, E>, node: NodeIndex) -> Vec<(EdgeIndex, NodeIndex)> {
-//     graph.parents(node).iter(graph).collect()
-// }
+    while !q.is_empty() {
+        let current_index = q.pop_front().unwrap();
 
-// fn prune_general<F, E: Clone>(
-//     old_graph: &Adag<String, E>,
-//     origin_nodes: &Vec<String>,
-//     func_next: F,
-//     direction: PruneDirection,
-// ) -> Adag<String, E>
-// where
-//     F: Fn(&Dag<String, E>, NodeIndex) -> Vec<(EdgeIndex, NodeIndex)>,
-// {
-//     //If we have more than one origin node for the DAG and we're pruning from
-//     //top to bottom, then we can not longer ensure that the resulting graph has
-//     //one root.
-//     //
-//     //A valid case would be all origin nodes are children of one origin node.
-//     //But this case is annoying to check and right now it's not relevant.
-//     if direction == PruneDirection::Down && origin_nodes.len() > 1 {
-//         panic!("Can not prune rooted dag from top to bottom with more than one origins!");
-//     }
+        if !sources.contains(&graph.hash_from_index(current_index)) {
+            for (_, parent_index) in graph.graph.parents(current_index).iter(&graph.graph) {
+                if reachable_upwards.insert(parent_index) {
+                    q.push_back(parent_index);
+                }
+            }
+        }
+    }
 
-//     let mut new_graph = Dag::<String, E>::new();
-//     let mut indexation = HashMap::<String, NodeIndex>::new();
-//     let mut queued = HashMap::<NodeIndex, NodeIndex>::new();
-//     let mut visit_stack = Vec::<(NodeIndex, NodeIndex)>::new();
+    //Phase 2: start at the sources and mark all downwards reachable nodes.
 
-//     for origin in origin_nodes {
-//         match old_graph.indexation.get(origin) {
-//             Some(index) => {
-//                 let new_index = new_graph.add_node(origin.to_string());
+    let mut reachable_downwards: HashSet<NodeIndex> = HashSet::new();
 
-//                 queued.insert(index.clone(), new_index);
-//                 visit_stack.push((index.clone(), new_index));
-//                 indexation.insert(origin.clone(), new_index);
-//             }
-//             None => eprintln!(
-//                 "prune_general: Didn't find node for {}. Will ignore it!",
-//                 origin
-//             ),
-//         }
-//     }
+    for source in sources {
+        let source_index = graph.index(source);
+        reachable_downwards.insert(source_index);
+        q.push_back(source_index);
+    }
 
-//     while !visit_stack.is_empty() {
-//         let (old_current_index, new_current_index) = visit_stack.pop().unwrap();
+    while !q.is_empty() {
+        let current_index = q.pop_front().unwrap();
 
-//         let next_nodes = func_next(&old_graph.graph, old_current_index);
-//         for (edge_to_next, next_old_index) in next_nodes {
-//             let edge = old_graph
-//                 .graph
-//                 .edge_weight(edge_to_next)
-//                 .expect("Didn't found edge in dvcs graph!");
+        for (_, parent_index) in graph.graph.children(current_index).iter(&graph.graph) {
+            if reachable_downwards.insert(parent_index) {
+                q.push_back(parent_index);
+            }
+        }
+    }
 
-//             match queued.get(&next_old_index) {
-//                 // The node was never visited, thus we have to add it.
-//                 None => {
-//                     let child_hash = old_graph
-//                         .graph
-//                         .node_weight(next_old_index)
-//                         .expect("Didn't found node in dvcs graph");
+    //Phase 3: filter all nodes of the graph that are upwards and downwards
+    //reachable.
+    let temp_graph = graph.graph.filter_map(
+        |i, n| {
+            if reachable_downwards.contains(&i) && reachable_upwards.contains(&i) {
+                Some((i, n.clone()))
+            } else {
+                None
+            }
+        },
+        |_, e| Some(e.clone()),
+    );
 
-//                     let (_, child_new_index) = match direction {
-//                         PruneDirection::Up => new_graph.add_parent(
-//                             new_current_index.clone(),
-//                             edge.clone(),
-//                             child_hash.to_string(),
-//                         ),
-//                         PruneDirection::Down => new_graph.add_child(
-//                             new_current_index.clone(),
-//                             edge.clone(),
-//                             child_hash.to_string(),
-//                         ),
-//                     };
+    let mut new_indexation = HashMap::new();
+    let new_graph = temp_graph.filter_map(
+        |i, (i_old, n)| {
+            new_indexation.insert(graph.hash_from_index(i_old.clone()), i);
+            Some(n.clone())
+        },
+        |_, e| Some(e.clone()),
+    );
 
-//                     queued.insert(next_old_index, child_new_index);
-//                     visit_stack.push((next_old_index, child_new_index));
-//                     indexation.insert(child_hash.to_string(), child_new_index);
-//                 }
+    let new_sources = sources
+        .iter()
+        .filter(|hash| {
+            let i = graph.index(hash);
+            reachable_downwards.contains(&i) && reachable_upwards.contains(&i)
+        })
+        .cloned()
+        .collect::<Vec<String>>();
 
-//                 //We already visited this node. So we don't have to revisit it,
-//                 //but we need to add an edge from the current node.
-//                 Some(next_new_index) => {
-//                     match direction {
-//                         PruneDirection::Up => new_graph
-//                             .add_edge(next_new_index.clone(), new_current_index, edge.clone())
-//                             .expect("Pruning error"),
-//                         PruneDirection::Down => new_graph
-//                             .add_edge(new_current_index, next_new_index.clone(), edge.clone())
-//                             .expect("Pruning error"),
-//                     };
-//                 }
-//             }
-//         }
-//     }
+    let new_targets = targets
+        .iter()
+        .filter(|hash| {
+            let i = graph.index(hash);
+            reachable_downwards.contains(&i) && reachable_upwards.contains(&i)
+        })
+        .cloned()
+        .collect::<Vec<String>>();
 
-//     let root = if direction == PruneDirection::Down {
-//         origin_nodes.first().unwrap().clone()
-//     } else {
-//         old_graph.root.clone()
-//     };
+    Adag {
+        sources: new_sources,
+        targets: new_targets,
+        graph: new_graph,
+        indexation: new_indexation,
+    }
+}
 
-//     Adag {
-//         root,
-//         graph: new_graph,
-//         indexation,
-//     }
-// }
+pub fn bfs_valid<E: Clone>(graph: &Adag<RPANode, E>, start: NodeIndex) -> NodeIndex {
+    let mut q = VecDeque::new();
+    let mut vis = HashSet::new();
+
+    let mut f = None;
+    q.push_back(start);
+    while !q.is_empty() {
+        let current_index = q.pop_front().unwrap();
+        
+        
+        let res = graph.node_from_index(current_index).result;
+        if  res.is_some() && res.unwrap() == TestResult::True {
+            f = Some(current_index);
+            break;
+        }
+        
+        let parents = graph.graph.parents(current_index);
+        for (_, parent_index) in parents.iter(&graph.graph) {
+            if vis.insert(parent_index) {
+                q.push_back(parent_index);
+            }
+        }
+    }
+
+    return f.unwrap();
+}
 
 pub fn shortest_path<N, E>(
     graph: &Dag<N, E>,
@@ -408,5 +434,8 @@ pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<
 // }
 
 fn reverse_hash_map<A: Clone, B: Clone + Eq + Hash>(indexation: &HashMap<A, B>) -> HashMap<B, A> {
-    indexation.into_iter().map(|(k,v)| (v.clone(), k.clone())).collect()
+    indexation
+        .into_iter()
+        .map(|(k, v)| (v.clone(), k.clone()))
+        .collect()
 }

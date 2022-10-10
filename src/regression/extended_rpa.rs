@@ -1,13 +1,14 @@
 use priority_queue::DoublePriorityQueue;
-use std::{
-    collections::{HashSet, VecDeque},
-};
+use std::collections::{HashSet, VecDeque};
 
 use daggy::{NodeIndex, Walker};
 
 use crate::graph::{shortest_path, Adag};
 
-use super::{PathAlgorithm, RegressionAlgorithm, RegressionPoint, TestResult};
+use super::{
+    rpa_extension::ExtendedSearch, AlgorithmResponse, PathAlgorithm, RegressionAlgorithm,
+    RegressionPoint, TestResult,
+};
 
 pub struct Settings {
     pub propagate: bool,
@@ -21,23 +22,22 @@ pub struct RPANode {
     // pub distance: u32,
 }
 
-pub struct RPA<S: PathAlgorithm + RegressionAlgorithm, E> {
+pub struct RPA<S: PathAlgorithm + RegressionAlgorithm, E: Clone> {
     commits: Adag<RPANode, E>,
     shortest_paths: DoublePriorityQueue<(NodeIndex, NodeIndex), u32>,
     remaining_targets: HashSet<NodeIndex>,
     current_search: Option<S>,
+    extended_search: Option<(RegressionPoint, ExtendedSearch<S, E>)>,
     regressions: Vec<RegressionPoint>,
     settings: Settings,
     interrupts: Vec<String>,
 }
 
 impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::fmt::Debug> RPA<S, E> {
-    pub fn new(
-        input_graph: Adag<String, E>,
-        settings: Settings,
-    ) -> Self {
+    pub fn new(input_graph: Adag<String, E>, settings: Settings) -> Self {
         let targets_index = HashSet::from_iter(
-            input_graph.targets
+            input_graph
+                .targets
                 .iter()
                 .filter_map(|hash| input_graph.indexation.get(hash))
                 .map(|reference| reference.clone()),
@@ -48,7 +48,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::fmt::Debug> RPA<S, 
 
         eprintln!(
             "----
-RPA initialized
+ExRPA initialized
 {} Commits
 ----",
             annotated.graph.node_count()
@@ -59,6 +59,7 @@ RPA initialized
             remaining_targets: targets_index,
             shortest_paths: shortest_path,
             current_search: None,
+            extended_search: None,
             regressions: vec![],
             interrupts: vec![],
             settings,
@@ -100,8 +101,6 @@ fn annotate_graph<E: Clone>(dvcs: Adag<String, E>) -> Adag<RPANode, E> {
     }
 }
 
-
-
 impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for RPA<S, E> {
     fn add_result(&mut self, commit_hash: String, result: TestResult) {
         let index = self.commits.index(&commit_hash);
@@ -118,33 +117,61 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for R
             self.update_paths(index);
         }
 
-        let mut remove = false;
-        if let Some(search) = self.current_search.as_mut() {
+        let mut reg_point = None;
+        if let Some((_, ex_search)) = self.extended_search.as_mut() {
+            ex_search.add_result(commit_hash, result);
+            self.interrupts
+                .extend(ex_search.interrupts().iter().cloned());
+        } else if let Some(search) = self.current_search.as_mut() {
             search.add_result(commit_hash, result);
             self.interrupts.extend(search.interrupts().iter().cloned());
             if search.done() {
-                remove = true;
-                for reg in search.results() {
-                    if self.settings.propagate {
-                        self.propagate_results(self.commits.index(&reg.regression_point));
-                    } else {
-                        self.remaining_targets
-                            .remove(&self.commits.index(&reg.target));
-                        self.regressions.push(reg);
-                    }
+                if self.settings.extended_search {
+                    let temp_reg = search.results()[0].clone();
+                    self.extended_search = Some((
+                        temp_reg,
+                        ExtendedSearch::new(self.commits.clone(), search.results()[0].clone()),
+                    ));
+                } else {
+                    reg_point = Some(search.results()[0].clone()); 
                 }
+                self.current_search = None;
+            }
+        };
+
+        while self.extended_search.is_some() {
+            let (ex_reg, ex_search) = self.extended_search.as_ref().unwrap();
+            if ex_search.done() {
+                let regs = ex_search.results();
+                if regs.is_empty() {
+                    reg_point = Some(ex_reg.clone());
+                    self.extended_search = None;
+                } else {
+                    let new_reg = regs[0].clone();
+                    self.extended_search = Some(
+                        (new_reg.clone(), ExtendedSearch::new(self.commits.clone(), new_reg.clone()))
+                    );
+                }
+            } else {
+                break;
             }
         }
 
-        if remove {
-            self.current_search = None;
+        if let Some(reg) = reg_point {
+            if self.settings.propagate {
+                self.propagate_results(self.commits.index(&reg.regression_point));
+            } else {
+                self.remaining_targets
+                    .remove(&self.commits.index(&reg.target));
+                self.regressions.push(reg);
+            }
         }
     }
 
     fn next_job(&mut self, capacity: u32) -> super::AlgorithmResponse {
         //If there is no active search right now, we have to pick a new path and
         //start another search.
-        if self.current_search.is_none() {
+        if self.current_search.is_none() && self.extended_search.is_none() {
             let mut path_indices = None;
 
             while !self.shortest_paths.is_empty() {
@@ -173,7 +200,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for R
             let len = path.len();
             let search = S::new(path);
             eprintln!(
-                "RPA - Algorithm:
+                "ExRPA - Algorithm:
 picked new path
 {:?} to {:?}
 length: {}
@@ -185,7 +212,13 @@ length: {}
             self.current_search = Some(search);
         }
 
-        self.current_search.as_mut().unwrap().next_job(capacity)
+        if let Some(search) = self.current_search.as_mut() {
+            search.next_job(capacity)
+        } else if let Some((_, ex_search)) = self.extended_search.as_mut() {
+            ex_search.next_job(capacity)
+        } else {
+            AlgorithmResponse::InternalError("No active search!")
+        }
     }
 
     fn interrupts(&mut self) -> Vec<String> {

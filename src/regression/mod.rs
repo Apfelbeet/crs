@@ -1,6 +1,15 @@
 use std::{collections::VecDeque, fmt};
 
-pub mod rpa;
+
+
+// mod rpa;
+mod extended_rpa;
+mod rpa_extension;
+
+pub mod rpa_search {
+    pub use super::extended_rpa::*;
+}
+
 pub mod binary_search;
 pub mod linear_search;
 pub mod multiplying_search;

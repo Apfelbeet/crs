@@ -11,7 +11,7 @@ use regression::{
     binary_search::BinarySearch,
     linear_search::LinearSearch,
     multiplying_search::MultiplyingSearch,
-    rpa::{Settings, RPA},
+    rpa_search::{Settings, RPA},
 };
 
 use crate::manage::start;
@@ -78,6 +78,7 @@ fn main() {
                 g,
                 Settings {
                     propagate: !args.no_propagate,
+                    extended_search: true,
                 },
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
@@ -87,6 +88,7 @@ fn main() {
                 g,
                 Settings {
                     propagate: !args.no_propagate,
+                    extended_search: true,
                 },
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
@@ -96,6 +98,7 @@ fn main() {
                 g,
                 Settings {
                     propagate: !args.no_propagate,
+                    extended_search: true,
                 },
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
