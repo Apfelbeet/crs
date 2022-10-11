@@ -189,11 +189,11 @@ fn process_response<'a, S: RegressionAlgorithm, T: DVCS>(
     match response.result.clone() {
         Ok((result, data)) => {
             eprintln!(
-                "Query finished:
-{} 
-{} 
-{}s
---",
+                "   Query finished:
+    - {} 
+    - {} 
+    - {}s
+----",
                 response.commit,
                 result,
                 data.all.as_secs_f32(),

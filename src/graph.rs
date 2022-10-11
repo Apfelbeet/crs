@@ -91,114 +91,106 @@ impl<N: Clone, E: Clone> Adag<N, E> {
         shortest_path
     }
 
-    pub fn pruned(&self) -> Adag<N, E> {
-        prune(self, &self.sources, &self.targets)
-    }
+    // pub fn pruned(&self) -> Adag<N, E> {
+    //     prune(self, &self.sources, &self.targets)
+    // }
 }
 
-// type KeypointEdge = u32;
+// pub fn prune<N: Clone, E: Clone>(
+//     graph: &Adag<N, E>,
+//     sources: &Vec<String>,
+//     targets: &Vec<String>,
+// ) -> Adag<N, E> {
+//     //Phase 1: start at the targets and mark all upwards reachable nodes.
 
-#[derive(Debug, Clone, PartialEq)]
-enum PruneDirection {
-    Up,
-    Down,
-}
+//     let mut reachable_upwards: HashSet<NodeIndex> = HashSet::new();
+//     let mut q: VecDeque<NodeIndex> = VecDeque::new();
 
-pub fn prune<N: Clone, E: Clone>(
-    graph: &Adag<N, E>,
-    sources: &Vec<String>,
-    targets: &Vec<String>,
-) -> Adag<N, E> {
-    //Phase 1: start at the targets and mark all upwards reachable nodes.
+//     for target in targets {
+//         let target_index = graph.index(target);
+//         reachable_upwards.insert(target_index);
+//         q.push_back(target_index);
+//     }
 
-    let mut reachable_upwards: HashSet<NodeIndex> = HashSet::new();
-    let mut q: VecDeque<NodeIndex> = VecDeque::new();
+//     while !q.is_empty() {
+//         let current_index = q.pop_front().unwrap();
 
-    for target in targets {
-        let target_index = graph.index(target);
-        reachable_upwards.insert(target_index);
-        q.push_back(target_index);
-    }
+//         if !sources.contains(&graph.hash_from_index(current_index)) {
+//             for (_, parent_index) in graph.graph.parents(current_index).iter(&graph.graph) {
+//                 if reachable_upwards.insert(parent_index) {
+//                     q.push_back(parent_index);
+//                 }
+//             }
+//         }
+//     }
 
-    while !q.is_empty() {
-        let current_index = q.pop_front().unwrap();
+//     //Phase 2: start at the sources and mark all downwards reachable nodes.
 
-        if !sources.contains(&graph.hash_from_index(current_index)) {
-            for (_, parent_index) in graph.graph.parents(current_index).iter(&graph.graph) {
-                if reachable_upwards.insert(parent_index) {
-                    q.push_back(parent_index);
-                }
-            }
-        }
-    }
+//     let mut reachable_downwards: HashSet<NodeIndex> = HashSet::new();
 
-    //Phase 2: start at the sources and mark all downwards reachable nodes.
+//     for source in sources {
+//         let source_index = graph.index(source);
+//         reachable_downwards.insert(source_index);
+//         q.push_back(source_index);
+//     }
 
-    let mut reachable_downwards: HashSet<NodeIndex> = HashSet::new();
+//     while !q.is_empty() {
+//         let current_index = q.pop_front().unwrap();
 
-    for source in sources {
-        let source_index = graph.index(source);
-        reachable_downwards.insert(source_index);
-        q.push_back(source_index);
-    }
+//         for (_, parent_index) in graph.graph.children(current_index).iter(&graph.graph) {
+//             if reachable_downwards.insert(parent_index) {
+//                 q.push_back(parent_index);
+//             }
+//         }
+//     }
 
-    while !q.is_empty() {
-        let current_index = q.pop_front().unwrap();
+//     //Phase 3: filter all nodes of the graph that are upwards and downwards
+//     //reachable.
+//     let temp_graph = graph.graph.filter_map(
+//         |i, n| {
+//             if reachable_downwards.contains(&i) && reachable_upwards.contains(&i) {
+//                 Some((i, n.clone()))
+//             } else {
+//                 None
+//             }
+//         },
+//         |_, e| Some(e.clone()),
+//     );
 
-        for (_, parent_index) in graph.graph.children(current_index).iter(&graph.graph) {
-            if reachable_downwards.insert(parent_index) {
-                q.push_back(parent_index);
-            }
-        }
-    }
+//     let mut new_indexation = HashMap::new();
+//     let new_graph = temp_graph.filter_map(
+//         |i, (i_old, n)| {
+//             new_indexation.insert(graph.hash_from_index(i_old.clone()), i);
+//             Some(n.clone())
+//         },
+//         |_, e| Some(e.clone()),
+//     );
 
-    //Phase 3: filter all nodes of the graph that are upwards and downwards
-    //reachable.
-    let temp_graph = graph.graph.filter_map(
-        |i, n| {
-            if reachable_downwards.contains(&i) && reachable_upwards.contains(&i) {
-                Some((i, n.clone()))
-            } else {
-                None
-            }
-        },
-        |_, e| Some(e.clone()),
-    );
+//     let new_sources = sources
+//         .iter()
+//         .filter(|hash| {
+//             let i = graph.index(hash);
+//             reachable_downwards.contains(&i) && reachable_upwards.contains(&i)
+//         })
+//         .cloned()
+//         .collect::<Vec<String>>();
 
-    let mut new_indexation = HashMap::new();
-    let new_graph = temp_graph.filter_map(
-        |i, (i_old, n)| {
-            new_indexation.insert(graph.hash_from_index(i_old.clone()), i);
-            Some(n.clone())
-        },
-        |_, e| Some(e.clone()),
-    );
+//     let new_targets = targets
+//         .iter()
+//         .filter(|hash| {
+//             let i = graph.index(hash);
+//             reachable_downwards.contains(&i) && reachable_upwards.contains(&i)
+//         })
+//         .cloned()
+//         .collect::<Vec<String>>();
 
-    let new_sources = sources
-        .iter()
-        .filter(|hash| {
-            let i = graph.index(hash);
-            reachable_downwards.contains(&i) && reachable_upwards.contains(&i)
-        })
-        .cloned()
-        .collect::<Vec<String>>();
-
-    let new_targets = targets
-        .iter()
-        .filter(|hash| {
-            let i = graph.index(hash);
-            reachable_downwards.contains(&i) && reachable_upwards.contains(&i)
-        })
-        .cloned()
-        .collect::<Vec<String>>();
-
-    Adag {
-        sources: new_sources,
-        targets: new_targets,
-        graph: new_graph,
-        indexation: new_indexation,
-    }
-}
+//     Adag {
+//         sources: new_sources,
+//         targets: new_targets,
+//         graph: new_graph,
+//         indexation: new_indexation,
+//     }
+// }
 
 pub fn bfs_valid<E: Clone>(graph: &Adag<RPANode, E>, start: NodeIndex) -> NodeIndex {
     let mut q = VecDeque::new();
@@ -291,6 +283,7 @@ pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<
     }
 }
 
+// type KeypointEdge = u32;
 /// Generates a rooted keypoint graph from a given rooted graph.
 ///
 /// A keypoint graph merges all nodes that are not a fork or a merge. In other

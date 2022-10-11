@@ -67,7 +67,6 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> ExtendedSearch<S, E> {
         if let Some(cp_index) = cached_parent {
             let cp = adag.hash_from_index(cp_index);
             let search = create_sub::<S, E>(&adag, cp);
-
             let mut search = ExtendedSearch {
                 parents: None,
                 sub: Some(search),
@@ -89,6 +88,14 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> ExtendedSearch<S, E> {
                 graph: adag,
             }
         } else {
+            eprintln!(
+                "ExRPA - Algorithm:
+check parents
+parents: {:?}
+----",
+                p
+            );
+
             ExtendedSearch {
                 parents: Some(ParentsSearch {
                     parents: p,
@@ -228,15 +235,6 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm
 }
 
 fn create_sub<S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode, E>, target: String) -> S {
-    // let pre = Adag {
-    //     graph: graph.graph.clone(),
-    //     indexation: graph.indexation.clone(),
-    //     sources: graph.sources.clone(), //TODO: ALl valid nodes
-    //     targets: vec![target],
-    // };
-    // let pruned = pre.pruned();
-    // let mut sp = pruned.calculate_distances();
-    // let ((source_index, target_index), _) = sp.pop_min().unwrap();
     let target_index = graph.index(&target);
     let valid_index = bfs_valid(graph, target_index);
     let path = shortest_path(&graph.graph, valid_index, target_index);
@@ -244,6 +242,19 @@ fn create_sub<S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode, E>, target: Stri
         .iter()
         .map(|i| graph.node_from_index(*i).hash)
         .collect::<VecDeque<String>>();
+    let path_len = hash_path.len();
     let search = S::new(hash_path);
+
+    eprintln!(
+        "ExRPA - Algorithm:
+picked extended path
+\"{}\" to \"{}\"
+lenght: {}
+----",
+        graph.hash_from_index(valid_index),
+        graph.hash_from_index(target_index),
+        path_len
+    );
+
     search
 }

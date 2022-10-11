@@ -48,7 +48,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::fmt::Debug> RPA<S, 
 
         eprintln!(
             "----
-ExRPA initialized
+RPA initialized
 {} Commits
 ----",
             annotated.graph.node_count()
@@ -200,7 +200,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for R
             let len = path.len();
             let search = S::new(path);
             eprintln!(
-                "ExRPA - Algorithm:
+                "RPA - Algorithm:
 picked new path
 {:?} to {:?}
 length: {}

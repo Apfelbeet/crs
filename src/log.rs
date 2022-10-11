@@ -37,6 +37,7 @@ worktree location: {:?}
 processes: {},
 no propagate: {},
 interrupt: {},
+no extended: {}
 search mode: {},
 scheduling: {}, 
 start: {:?},
@@ -51,6 +52,7 @@ pid,commit,status,all,setup,query,distance
         args.processes,
         args.no_propagate,
         args.interrupt,
+        args.no_extended,
         args.search_mode,
         regression::NAME,
         args.start,

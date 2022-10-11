@@ -46,6 +46,9 @@ pub struct Args {
 
     #[clap(long, action)]
     pub interrupt: bool,
+
+    #[clap(long, action)]
+    pub no_extended: bool
 }
 
 fn main() {
@@ -78,7 +81,7 @@ fn main() {
                 g,
                 Settings {
                     propagate: !args.no_propagate,
-                    extended_search: true,
+                    extended_search: !args.no_extended,
                 },
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
@@ -88,7 +91,7 @@ fn main() {
                 g,
                 Settings {
                     propagate: !args.no_propagate,
-                    extended_search: true,
+                    extended_search: !args.no_extended,
                 },
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
@@ -98,7 +101,7 @@ fn main() {
                 g,
                 Settings {
                     propagate: !args.no_propagate,
-                    extended_search: true,
+                    extended_search: !args.no_extended,
                 },
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
