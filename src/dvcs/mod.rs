@@ -4,7 +4,7 @@ use std::{
     process::{Child, Command, Output, Stdio},
 };
 
-use crate::graph::Radag;
+use crate::graph::Adag;
 
 pub mod git;
 
@@ -13,7 +13,7 @@ pub trait DVCS {
         repository: &str,
         start: Vec<String>,
         targets: Vec<String>,
-    ) -> Result<Radag<String, ()>, ()>;
+    ) -> Result<Adag<String, ()>, ()>;
     fn create_worktree(
         repository: &str,
         name: &str,
