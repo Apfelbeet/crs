@@ -192,7 +192,7 @@ impl<N: Clone, E: Clone> Adag<N, E> {
 //     }
 // }
 
-pub fn bfs_valid<E: Clone>(graph: &Adag<RPANode, E>, start: NodeIndex) -> NodeIndex {
+pub fn bfs_valid<E: Clone>(graph: &Adag<RPANode, E>, start: NodeIndex) -> Option<NodeIndex> {
     let mut q = VecDeque::new();
     let mut vis = HashSet::new();
 
@@ -216,7 +216,7 @@ pub fn bfs_valid<E: Clone>(graph: &Adag<RPANode, E>, start: NodeIndex) -> NodeIn
         }
     }
 
-    return f.unwrap();
+    return f;
 }
 
 pub fn shortest_path<N, E>(

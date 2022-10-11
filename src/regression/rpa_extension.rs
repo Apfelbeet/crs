@@ -69,7 +69,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> ExtendedSearch<S, E> {
             let search = create_sub::<S, E>(&adag, cp);
             let mut search = ExtendedSearch {
                 parents: None,
-                sub: Some(search),
+                sub: search,
                 interrupts: vec![],
                 regression: None,
                 target: reg.target,
@@ -186,7 +186,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm
         if let Some(nt) = new_target {
             let search = create_sub::<S, E>(&self.graph, nt);
             self.parents = None;
-            self.sub = Some(search);
+            self.sub = search;
             self.check_sub_done();
         }
     }
@@ -234,9 +234,9 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm
     }
 }
 
-fn create_sub<S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode, E>, target: String) -> S {
+fn create_sub<S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode, E>, target: String) -> Option<S> {
     let target_index = graph.index(&target);
-    let valid_index = bfs_valid(graph, target_index);
+    let valid_index = bfs_valid(graph, target_index)?;
     let path = shortest_path(&graph.graph, valid_index, target_index);
     let hash_path = path
         .iter()
@@ -256,5 +256,5 @@ lenght: {}
         path_len
     );
 
-    search
+    Some(search)
 }
