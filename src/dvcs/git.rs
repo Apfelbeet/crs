@@ -100,7 +100,7 @@ impl DVCS for Git {
 
     fn remove_worktree(worktree: &Worktree) -> Result<(), ()> {
         let mut rm_tree = Command::new("git");
-        rm_tree.args(["worktree", "remove", "--force", worktree.name.as_str()]);
+        rm_tree.args(["worktree", "remove", worktree.name.as_str()]);
 
         return match run_command_sync(&worktree.location, &mut rm_tree) {
             Ok(o) => {
