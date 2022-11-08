@@ -1,13 +1,13 @@
 use std::{collections::VecDeque, fmt};
 
-
-
-// mod rpa;
-mod extended_rpa;
 mod rpa_extension;
+mod generalized_rpa;
+
+pub mod path_selection;
+pub mod rpa_util;
 
 pub mod rpa_search {
-    pub use super::extended_rpa::*;
+    pub use super::generalized_rpa::*;
 }
 
 pub mod binary_search;
@@ -25,7 +25,7 @@ mod interval_search {
 pub const NAME: &str = interval_search::NAME; 
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum TestResult {
     True,
     False,

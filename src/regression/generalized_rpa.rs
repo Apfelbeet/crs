@@ -1,39 +1,36 @@
-use priority_queue::DoublePriorityQueue;
-use std::collections::{HashSet, VecDeque};
-
-use daggy::{NodeIndex, Walker};
-
-use crate::graph::{shortest_path, Adag};
-
-use super::{
-    rpa_extension::ExtendedSearch, AlgorithmResponse, PathAlgorithm, RegressionAlgorithm,
-    RegressionPoint, TestResult,
+use std::{
+    collections::{HashSet, VecDeque},
+    marker::PhantomData,
 };
 
-pub struct Settings {
-    pub propagate: bool,
-    pub extended_search: bool,
-}
+use daggy::{NodeIndex, Walker};
+use priority_queue::PriorityQueue;
 
-#[derive(Debug, Clone)]
-pub struct RPANode {
-    pub result: Option<TestResult>,
-    pub hash: String,
-    // pub distance: u32,
-}
+use crate::graph::Adag;
 
-pub struct RPA<S: PathAlgorithm + RegressionAlgorithm, E: Clone> {
+use super::{
+    path_selection::PathSelection,
+    rpa_extension::ExtendedSearch,
+    rpa_util::{RPANode, Settings},
+    AlgorithmResponse, PathAlgorithm, RegressionAlgorithm, RegressionPoint, TestResult,
+};
+
+pub struct RPA<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> {
     commits: Adag<RPANode, E>,
-    shortest_paths: DoublePriorityQueue<(NodeIndex, NodeIndex), u32>,
+    ordering: PriorityQueue<(NodeIndex, NodeIndex), i32>,
     remaining_targets: HashSet<NodeIndex>,
+    valid_nodes: HashSet<NodeIndex>,
     current_search: Option<S>,
-    extended_search: Option<(RegressionPoint, ExtendedSearch<S, E>)>,
+    extended_search: Option<(RegressionPoint, ExtendedSearch<P, S, E>)>,
     regressions: Vec<RegressionPoint>,
     settings: Settings,
     interrupts: Vec<String>,
+    _marker: PhantomData<P>,
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::fmt::Debug> RPA<S, E> {
+impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::fmt::Debug>
+    RPA<P, S, E>
+{
     pub fn new(input_graph: Adag<String, E>, settings: Settings) -> Self {
         let targets_index = HashSet::from_iter(
             input_graph
@@ -43,8 +40,16 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::fmt::Debug> RPA<S, 
                 .map(|reference| reference.clone()),
         );
 
+        let sources_index = HashSet::from_iter(
+            input_graph
+                .sources
+                .iter()
+                .filter_map(|hash| input_graph.indexation.get(hash))
+                .map(|reference| reference.clone()),
+        );
+
         let annotated = annotate_graph(input_graph);
-        let shortest_path = annotated.calculate_distances();
+        let ordering = P::calculate_distances(&annotated, &targets_index, &sources_index);
 
         eprintln!(
             "----
@@ -57,12 +62,14 @@ RPA initialized
         RPA {
             commits: annotated,
             remaining_targets: targets_index,
-            shortest_paths: shortest_path,
+            valid_nodes: sources_index,
+            ordering,
             current_search: None,
             extended_search: None,
             regressions: vec![],
             interrupts: vec![],
             settings,
+            _marker: PhantomData,
         }
     }
 }
@@ -101,7 +108,9 @@ fn annotate_graph<E: Clone>(dvcs: Adag<String, E>) -> Adag<RPANode, E> {
     }
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for RPA<S, E> {
+impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm
+    for RPA<P, S, E>
+{
     fn add_result(&mut self, commit_hash: String, result: TestResult) {
         let index = self.commits.index(&commit_hash);
 
@@ -111,29 +120,28 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for R
             .node_weight_mut(index)
             .expect("Invalid index!");
 
-        node.result = Some(result.clone());
-
         if result == TestResult::True {
-            self.update_paths(index);
+            self.valid_nodes.insert(index);
         }
+        node.result = Some(result.clone());
 
         let mut reg_point = None;
         if let Some((_, ex_search)) = self.extended_search.as_mut() {
-            ex_search.add_result(commit_hash, result);
+            ex_search.add_result(commit_hash, result.clone());
             self.interrupts
                 .extend(ex_search.interrupts().iter().cloned());
         } else if let Some(search) = self.current_search.as_mut() {
-            search.add_result(commit_hash, result);
+            search.add_result(commit_hash, result.clone());
             self.interrupts.extend(search.interrupts().iter().cloned());
             if search.done() {
                 if self.settings.extended_search {
                     let temp_reg = search.results()[0].clone();
                     self.extended_search = Some((
                         temp_reg,
-                        ExtendedSearch::new(self.commits.clone(), search.results()[0].clone()),
+                        ExtendedSearch::new(self.commits.clone(), search.results()[0].clone(), &self.valid_nodes),
                     ));
                 } else {
-                    reg_point = Some(search.results()[0].clone()); 
+                    reg_point = Some(search.results()[0].clone());
                 }
                 self.current_search = None;
             }
@@ -148,9 +156,10 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for R
                     self.extended_search = None;
                 } else {
                     let new_reg = regs[0].clone();
-                    self.extended_search = Some(
-                        (new_reg.clone(), ExtendedSearch::new(self.commits.clone(), new_reg.clone()))
-                    );
+                    self.extended_search = Some((
+                        new_reg.clone(),
+                        ExtendedSearch::new(self.commits.clone(), new_reg.clone(), &self.valid_nodes),
+                    ));
                 }
             } else {
                 break;
@@ -166,6 +175,10 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for R
                 self.regressions.push(reg);
             }
         }
+
+        if result == TestResult::True {
+            self.ordering = P::calculate_distances(&self.commits, &self.remaining_targets, &self.valid_nodes);
+        }
     }
 
     fn next_job(&mut self, capacity: u32) -> super::AlgorithmResponse {
@@ -174,8 +187,8 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for R
         if self.current_search.is_none() && self.extended_search.is_none() {
             let mut path_indices = None;
 
-            while !self.shortest_paths.is_empty() {
-                let (start, end) = self.shortest_paths.pop_min().unwrap().0;
+            while !self.ordering.is_empty() {
+                let (start, end) = self.ordering.pop().unwrap().0;
 
                 if self.remaining_targets.contains(&end) {
                     path_indices = Some((start, end));
@@ -185,7 +198,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm for R
 
             let (start, end) = path_indices.expect("No relevant path was found!");
 
-            let path = shortest_path(&self.commits.graph, start, end)
+            let path = P::extract_path(&self.commits, start, end)
                 .iter()
                 .map(|index| {
                     self.commits
@@ -236,35 +249,7 @@ length: {}
     }
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<S, E> {
-    fn update_paths(&mut self, origin: NodeIndex) {
-        //TODO: The origin should never be a target. This is given by the fact
-        //that this function will only be called, if the result is true and by
-        //the assumption that all targets are false. But it would be better if we
-        //explicitly handle this case. (e.g. throwing an error, warning or
-        //returning a result value)
-        let mut queue = VecDeque::<(NodeIndex, u32)>::new();
-        let mut visited = HashSet::new();
-
-        queue.push_back((origin, 0));
-        visited.insert(origin);
-
-        while !queue.is_empty() {
-            let (index, distance) = queue.pop_front().unwrap();
-
-            if self.remaining_targets.contains(&index) {
-                self.shortest_paths.push((origin, index), distance);
-            }
-
-            for (_, next) in self.commits.graph.children(index).iter(&self.commits.graph) {
-                if !visited.contains(&next) {
-                    queue.push_back((next, distance + 1));
-                    visited.insert(next);
-                }
-            }
-        }
-    }
-
+impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<P, S, E> {
     fn propagate_results(&mut self, regression: NodeIndex) {
         let mut queue = VecDeque::<NodeIndex>::new();
         let mut visited = HashSet::new();

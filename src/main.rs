@@ -11,7 +11,7 @@ use regression::{
     binary_search::BinarySearch,
     linear_search::LinearSearch,
     multiplying_search::MultiplyingSearch,
-    rpa_search::{Settings, RPA},
+    rpa_search::RPA, rpa_util::Settings, path_selection::{shortest_path::ShortestPath, longest_path::LongestPath},
 };
 
 use crate::manage::start;
@@ -38,7 +38,7 @@ pub struct Args {
     #[clap(parse(from_os_str), long)]
     pub worktree_location: Option<std::path::PathBuf>,
 
-    #[clap(long, value_parser, value_name = "MODE", default_value = "rpa-binary")]
+    #[clap(long, value_parser, value_name = "MODE", default_value = "exrpa-long-bin")]
     pub search_mode: String,
 
     #[clap(parse(from_os_str), short, long, value_name = "DIRECTORY")]
@@ -76,8 +76,8 @@ fn main() {
     let g = Git::commit_graph(repo_path, vec![args.start.clone()], args.targets.clone()).unwrap();
     // TODO: There has to be a nicer way.
     match args.search_mode.as_str() {
-        "rpa-binary" => {
-            let mut rpa = RPA::<BinarySearch, ()>::new(
+        "exrpa-long-bin" => {
+            let mut rpa = RPA::<LongestPath, BinarySearch, ()>::new(
                 g,
                 Settings {
                     propagate: !args.no_propagate,
@@ -86,8 +86,8 @@ fn main() {
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
         }
-        "rpa-linear" => {
-            let mut rpa = RPA::<LinearSearch, ()>::new(
+        "exrpa-long-lin" => {
+            let mut rpa = RPA::<LongestPath, LinearSearch, ()>::new(
                 g,
                 Settings {
                     propagate: !args.no_propagate,
@@ -96,8 +96,38 @@ fn main() {
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
         }
-        "rpa-multi" => {
-            let mut rpa = RPA::<MultiplyingSearch, ()>::new(
+        "exrpa-long-mul" => {
+            let mut rpa = RPA::<LongestPath, MultiplyingSearch, ()>::new(
+                g,
+                Settings {
+                    propagate: !args.no_propagate,
+                    extended_search: !args.no_extended,
+                },
+            );
+            start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
+        }
+        "exrpa-short-bin" => {
+            let mut rpa = RPA::<ShortestPath, BinarySearch, ()>::new(
+                g,
+                Settings {
+                    propagate: !args.no_propagate,
+                    extended_search: !args.no_extended,
+                },
+            );
+            start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
+        }
+        "exrpa-short-lin" => {
+            let mut rpa = RPA::<ShortestPath, LinearSearch, ()>::new(
+                g,
+                Settings {
+                    propagate: !args.no_propagate,
+                    extended_search: !args.no_extended,
+                },
+            );
+            start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
+        }
+        "exrpa-short-mul" => {
+            let mut rpa = RPA::<ShortestPath, MultiplyingSearch, ()>::new(
                 g,
                 Settings {
                     propagate: !args.no_propagate,
@@ -107,7 +137,7 @@ fn main() {
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
         }
         &_ => {
-            panic!("Invalid search mode! Pick (rpa-binary, rpa-linear, rpa-multi)");
+            panic!("Invalid search mode! Pick (exrpa-long-bin, exrpa-long-lin, exrpa-long-mul, exrpa-short-bin, exrpa-short-lin, exrpa-short-mul)");
         }
     };
 }

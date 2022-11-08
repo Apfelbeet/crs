@@ -1,21 +1,23 @@
-use std::collections::{HashSet, VecDeque};
+use std::{collections::{HashSet, VecDeque}, marker::PhantomData};
 
 use daggy::{NodeIndex, Walker};
 
-use crate::graph::{bfs_valid, shortest_path, Adag};
+use crate::graph::Adag;
 
 use super::{
-    extended_rpa::RPANode, AlgorithmResponse, PathAlgorithm, RegressionAlgorithm, RegressionPoint,
-    TestResult,
+    AlgorithmResponse, PathAlgorithm, RegressionAlgorithm, RegressionPoint,
+    TestResult, rpa_util::RPANode, path_selection::PathSelection,
 };
 
-pub struct ExtendedSearch<S: PathAlgorithm + RegressionAlgorithm, E: Clone> {
+pub struct ExtendedSearch<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> {
     parents: Option<ParentsSearch>,
     sub: Option<S>,
     interrupts: Vec<String>,
     regression: Option<String>,
     target: String,
     graph: Adag<RPANode, E>,
+    valid_nodes: HashSet<NodeIndex>,
+    _marker: PhantomData<P>,
 }
 
 pub struct ParentsSearch {
@@ -23,8 +25,8 @@ pub struct ParentsSearch {
     parents_await: HashSet<String>,
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> ExtendedSearch<S, E> {
-    pub fn new(adag: Adag<RPANode, E>, reg: RegressionPoint) -> Self {
+impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> ExtendedSearch<P, S, E> {
+    pub fn new(adag: Adag<RPANode, E>, reg: RegressionPoint, valid_nodes: &HashSet<NodeIndex>) -> Self {
         let mut q = VecDeque::<NodeIndex>::new();
         let mut queued = HashSet::<NodeIndex>::new();
 
@@ -66,7 +68,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> ExtendedSearch<S, E> {
 
         if let Some(cp_index) = cached_parent {
             let cp = adag.hash_from_index(cp_index);
-            let search = create_sub::<S, E>(&adag, cp);
+            let search = create_sub::<P, S, E>(&adag, cp, valid_nodes);
             let mut search = ExtendedSearch {
                 parents: None,
                 sub: search,
@@ -74,6 +76,8 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> ExtendedSearch<S, E> {
                 regression: None,
                 target: reg.target,
                 graph: adag,
+                valid_nodes: valid_nodes.clone(),
+                _marker: PhantomData,
             };
 
             search.check_sub_done();
@@ -86,6 +90,8 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> ExtendedSearch<S, E> {
                 regression: None,
                 target: reg.target,
                 graph: adag,
+                valid_nodes: valid_nodes.clone(),
+                _marker: PhantomData,
             }
         } else {
             eprintln!(
@@ -106,6 +112,8 @@ parents: {:?}
                 regression: None,
                 target: reg.target,
                 graph: adag,
+                valid_nodes: valid_nodes.clone(),
+                _marker: PhantomData,
             }
         }
     }
@@ -119,13 +127,17 @@ parents: {:?}
     }
 }
 
-impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm
-    for ExtendedSearch<S, E>
+impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm
+    for ExtendedSearch<P, S, E>
 {
     fn add_result(&mut self, commit: String, result: super::TestResult) {
         let index = self.graph.index(&commit);
         let node = self.graph.graph.node_weight_mut(index).unwrap();
         node.result = Some(result.clone());
+
+        if result == TestResult::True {
+            self.valid_nodes.insert(index);
+        }
 
         let mut new_target = None;
         if let Some(ps) = self.parents.as_mut() {
@@ -184,7 +196,7 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm
 
         //When we found a invalid parent, we start with the second phase.
         if let Some(nt) = new_target {
-            let search = create_sub::<S, E>(&self.graph, nt);
+            let search = create_sub::<P, S, E>(&self.graph, nt, &self.valid_nodes);
             self.parents = None;
             self.sub = search;
             self.check_sub_done();
@@ -234,10 +246,14 @@ impl<S: PathAlgorithm + RegressionAlgorithm, E: Clone> RegressionAlgorithm
     }
 }
 
-fn create_sub<S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode, E>, target: String) -> Option<S> {
+fn create_sub<P: PathSelection, S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode, E>, target: String, valid_nodes: &HashSet<NodeIndex>) -> Option<S> {
     let target_index = graph.index(&target);
-    let valid_index = bfs_valid(graph, target_index)?;
-    let path = shortest_path(&graph.graph, valid_index, target_index);
+    let targets = HashSet::from([target_index]);
+
+    let ordering = P::calculate_distances(graph, &targets, valid_nodes);
+    let ((source_index, _), _) = ordering.peek().unwrap();
+    let path = P::extract_path(graph, *source_index, target_index);
+
     let hash_path = path
         .iter()
         .map(|i| graph.node_from_index(*i).hash)
@@ -251,7 +267,7 @@ picked extended path
 \"{}\" to \"{}\"
 lenght: {}
 ----",
-        graph.hash_from_index(valid_index),
+        graph.hash_from_index(*source_index),
         graph.hash_from_index(target_index),
         path_len
     );
