@@ -138,6 +138,12 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
 
     //Wait for active processes to be done and clean up.
     eprintln!("Wait for active processes to finish!");
+    if options.do_interrupt {
+        for (_, process) in &mut pool.active_processes {
+            process.interrupt()
+        }
+    }
+
     while !pool.active_processes.is_empty() {
         let _ = recv_response(&recv, &mut pool);
     }
