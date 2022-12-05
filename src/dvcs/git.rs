@@ -102,6 +102,8 @@ impl DVCS for Git {
         let mut rm_tree = Command::new("git");
         rm_tree.args(["worktree", "remove", worktree.name.as_str()]);
 
+        worktree_clean(worktree);
+
         return match run_command_sync(&worktree.location, &mut rm_tree) {
             Ok(o) => {
                 if o.status.success() {
@@ -121,6 +123,8 @@ impl DVCS for Git {
     fn checkout(worktree: &Worktree, commit: &str) -> Result<(), ()> {
         let mut command = Command::new("git");
         command.args(["checkout", "-f", commit]);
+
+        worktree_clean(worktree);
 
         return match run_command_sync(&worktree.location, &mut command) {
             Ok(output) => {
@@ -203,6 +207,24 @@ impl DVCS for Git {
             }
             Err(err) => panic!("git panicked {}", err),
         }
+    }
+}
+
+fn worktree_clean(worktree: &Worktree) {
+    let mut command_clean = Command::new("git");
+    command_clean.args(["clean", "-d", "-f", "-x"]);
+
+    let mut command_reset = Command::new("git");
+    command_reset.args(["restore", "."]);
+
+    match run_command_sync(&worktree.location, &mut command_clean) {
+        Ok(_) => {},
+        Err(err) => panic!("git panicked {}", err),
+    }
+
+    match run_command_sync(&worktree.location, &mut command_reset) {
+        Ok(_) => {},
+        Err(err) => panic!("git panicked {}", err),
     }
 }
 
