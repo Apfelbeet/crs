@@ -1,5 +1,5 @@
 use std::{
-    fs::{OpenOptions, File},
+    fs::File,
     io::Error,
     process::{Child, Command, Output, Stdio},
 };
@@ -30,14 +30,6 @@ pub struct Worktree {
     pub location: String,
     pub name: String,
 }
-
-// pub fn run_script_sync(location: &str, script_path: &str) -> std::io::Result<Output> {
-//     let mut command = Command::new(script_path);
-//     command.current_dir(location);
-
-//     let x = command.output();
-//     x
-// }
 
 pub fn run_script_async(
     location: &str,
