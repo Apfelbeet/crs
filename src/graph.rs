@@ -1,9 +1,8 @@
-use daggy::{Dag, NodeIndex};
+use daggy::{Dag, NodeIndex, Walker, petgraph::visit::IntoNodeIdentifiers};
 use std::{
     cmp::{max, min},
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
 };
-
 
 #[derive(Debug, Clone)]
 pub struct Adag<N, E> {
@@ -67,4 +66,31 @@ pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<
     } else {
         Err(())
     }
+}
+
+pub fn prune_downwards(graph: &Dag<String, ()>, sources: &Vec<NodeIndex>) -> (Dag<String, ()>, HashMap<String, NodeIndex>) {
+    let mut q: Vec<NodeIndex> = sources.clone();
+    let mut marked: HashSet<NodeIndex> = HashSet::from_iter(sources.iter().cloned());
+
+    while !q.is_empty() {
+        let current = q.pop().unwrap();
+
+        for (_, child) in graph.children(current).iter(graph) {
+            if marked.insert(child) {
+                q.push(child);
+            }
+        }
+    }
+
+    let new_graph = graph.filter_map(
+        |n, s| if marked.contains(&n) { Some(s.clone()) } else { None },
+        |_, v| Some(v.clone()),
+    );
+
+    let mut indexation = HashMap::<String, NodeIndex>::new();
+    for index in new_graph.node_identifiers() {
+        indexation.insert(new_graph.node_weight(index).unwrap().clone(), index);
+    }
+
+    return (new_graph, indexation);
 }

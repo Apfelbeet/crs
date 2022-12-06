@@ -20,7 +20,7 @@ pub struct TemporalLogData {
     len: u32,
 }
 
-pub fn write_header(directory: &std::path::PathBuf, args: &Args) -> std::path::PathBuf {
+pub fn write_header(directory: &std::path::PathBuf, args: &Args, sources: &Vec<String>, targets: &Vec<String>) -> std::path::PathBuf {
     let date = Utc::now();
     let directory_name = date.format("%Y%m%d_%H%M%S").to_string();
     let mut path = directory.clone();
@@ -55,8 +55,8 @@ pid,commit,status,all,setup,query,distance
         args.no_extended,
         args.search_mode,
         regression::NAME,
-        args.start,
-        args.targets
+        sources,
+        targets
     );
 
     path = path.join(directory_name);

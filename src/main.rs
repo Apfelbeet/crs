@@ -11,7 +11,9 @@ use regression::{
     binary_search::BinarySearch,
     linear_search::LinearSearch,
     multiplying_search::MultiplyingSearch,
-    rpa_search::RPA, rpa_util::Settings, path_selection::{shortest_path::ShortestPath, longest_path::LongestPath},
+    path_selection::{longest_path::LongestPath, shortest_path::ShortestPath},
+    rpa_search::RPA,
+    rpa_util::Settings,
 };
 
 use crate::manage::start;
@@ -27,10 +29,10 @@ pub struct Args {
     pub processes: u32,
 
     #[clap(short, long, value_parser)]
-    pub start: String,
+    pub source: String,
 
-    #[clap(value_parser, last = true)]
-    pub targets: Vec<String>,
+    #[clap(short, long, value_parser)]
+    pub target: String,
 
     #[clap(long, action)]
     pub no_propagate: bool,
@@ -38,7 +40,12 @@ pub struct Args {
     #[clap(parse(from_os_str), long)]
     pub worktree_location: Option<std::path::PathBuf>,
 
-    #[clap(long, value_parser, value_name = "MODE", default_value = "exrpa-long-bin")]
+    #[clap(
+        long,
+        value_parser,
+        value_name = "MODE",
+        default_value = "exrpa-long-bin"
+    )]
     pub search_mode: String,
 
     #[clap(parse(from_os_str), short, long, value_name = "DIRECTORY")]
@@ -48,16 +55,19 @@ pub struct Args {
     pub interrupt: bool,
 
     #[clap(long, action)]
-    pub no_extended: bool
+    pub no_extended: bool,
 }
 
 fn main() {
     let args = Args::parse();
 
+    let sources: Vec<String> = args.source.split(",").map(|s| s.to_string()).collect();
+    let targets: Vec<String> = args.target.split(",").map(|s| s.to_string()).collect();
+
     let log_location = args
         .log
         .as_ref()
-        .map(|b_dir| log::write_header(b_dir, &args));
+        .map(|b_dir| log::write_header(b_dir, &args, &sources, &targets));
 
     let worktree_location = match args.worktree_location {
         Some(path) => Some(path.display().to_string()),
@@ -73,7 +83,7 @@ fn main() {
     let repo_path = &args.repository.display().to_string();
     let test_path = &args.test.display().to_string();
 
-    let g = Git::commit_graph(repo_path, vec![args.start.clone()], args.targets.clone()).unwrap();
+    let g = Git::commit_graph(repo_path, sources.clone(), targets).unwrap();
     // TODO: There has to be a nicer way.
     match args.search_mode.as_str() {
         "exrpa-long-bin" => {

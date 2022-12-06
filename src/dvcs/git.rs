@@ -1,6 +1,6 @@
 use crate::dvcs::DVCS;
-use crate::graph::Adag;
-use daggy::{Dag, NodeIndex, Walker};
+use crate::graph::{Adag, prune_downwards};
+use daggy::{Dag, NodeIndex};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::process::Command;
@@ -24,9 +24,7 @@ impl DVCS for Git {
         let mut command = Command::new("git");
         command
             .args(["rev-list", "--parents"])
-            .args(targets.clone())
-            .arg("--not")
-            .args(sources.clone());
+            .args(targets.clone());
 
         let rev_list = match run_command_sync(repository, &mut command) {
             Err(err) => {
@@ -256,6 +254,7 @@ fn parse_rev_list(rev_list: String, source_hashes: &Vec<String>, targets: &Vec<S
     let mut indexation = HashMap::new();
     let mut graph = Dag::new();
 
+    println!("{}", rev_list);
     let lines = rev_list.lines();
 
     for line in lines {
@@ -284,23 +283,22 @@ fn parse_rev_list(rev_list: String, source_hashes: &Vec<String>, targets: &Vec<S
         }
     }
 
-    let sources: Vec<String> = indexation
-        .iter()
-        .filter(|(hash, i)| graph.parents(i.clone().clone()).iter(&graph).count() == 0 && source_hashes.contains(hash))
-        .map(|(hash, _)| hash.to_string())
-        .collect();
+    let source_indices: Vec<NodeIndex> = source_hashes.iter().filter_map(|h| indexation.get(h).cloned()).collect();
+    let (pruned_graph, indexation2) = prune_downwards(&graph, &source_indices);
 
-    if sources.len() == 0 {
+    if source_indices.len() == 0 {
         eprintln!("Graph has no source!");
         return Err(());
     }
+
+    let sources = source_hashes.iter().filter(|h| indexation2.contains_key(&h.to_string())).cloned().collect();
 
     Ok(
         Adag {
             sources: sources,
             targets: targets.clone(),
-            graph,
-            indexation,
+            graph: pruned_graph,
+            indexation: indexation2,
         }
     )
 }
