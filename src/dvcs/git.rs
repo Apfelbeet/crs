@@ -254,7 +254,6 @@ fn parse_rev_list(rev_list: String, source_hashes: &Vec<String>, targets: &Vec<S
     let mut indexation = HashMap::new();
     let mut graph = Dag::new();
 
-    println!("{}", rev_list);
     let lines = rev_list.lines();
 
     for line in lines {
