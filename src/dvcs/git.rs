@@ -1,5 +1,5 @@
 use crate::dvcs::DVCS;
-use crate::graph::{Adag, prune_downwards};
+use crate::graph::{prune_downwards, Adag};
 use daggy::{Dag, NodeIndex};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -21,30 +21,52 @@ impl DVCS for Git {
         sources: Vec<String>,
         targets: Vec<String>,
     ) -> Result<Adag<String, ()>, ()> {
-        let mut command = Command::new("git");
-        command
-            .args(["rev-list", "--parents"])
-            .args(targets.clone());
+        let mut graph = Dag::<String, ()>::new();
+        let mut indexation = HashMap::<String, NodeIndex>::new();
+        
+        for source in &sources {
+            let mut command = Command::new("git");
+            command
+                .args(["rev-list", "--parents"])
+                .args(targets.clone())
+                .arg("--not")
+                .arg(source.clone());
 
-        let rev_list = match run_command_sync(repository, &mut command) {
-            Err(err) => {
-                print_error(err.to_string().as_str());
-                Err(())
-            }
-            Ok(output) => {
-                if output.status.success() {
-                    match String::from_utf8(output.stdout) {
-                        Ok(r) => Ok(r),
-                        Err(_) => Err(()),
-                    }
-                } else {
-                    print_error(String::from_utf8(output.stderr).unwrap().as_str());
+            let rev_list = match run_command_sync(repository, &mut command) {
+                Err(err) => {
+                    print_error(err.to_string().as_str());
                     Err(())
                 }
-            }
-        };
+                Ok(output) => {
+                    if output.status.success() {
+                        match String::from_utf8(output.stdout) {
+                            Ok(r) => Ok(r),
+                            Err(_) => Err(()),
+                        }
+                    } else {
+                        print_error(String::from_utf8(output.stderr).unwrap().as_str());
+                        Err(())
+                    }
+                }
+            };
 
-        return parse_rev_list(rev_list?, &sources, &targets);
+            add_rev_list(&mut graph, &mut indexation, rev_list?);
+        }
+
+        let source_indices = sources
+            .iter()
+            .filter_map(|h| indexation.get(h).cloned())
+            .collect();
+        let (pruned_graph, pruned_indexation) = prune_downwards(&graph, &source_indices);
+        let remaining_sources = sources.iter().filter(|h| pruned_indexation.contains_key(*h)).cloned().collect();
+        let remaining_targets = targets.iter().filter(|h| pruned_indexation.contains_key(*h)).cloned().collect();
+
+        return Ok (Adag {
+            graph: pruned_graph,
+            indexation: pruned_indexation,
+            sources: remaining_sources,
+            targets: remaining_targets,
+        });
     }
 
     fn create_worktree(
@@ -216,12 +238,12 @@ fn worktree_clean(worktree: &Worktree) {
     command_reset.args(["restore", "."]);
 
     match run_command_sync(&worktree.location, &mut command_clean) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => panic!("git panicked {}", err),
     }
 
     match run_command_sync(&worktree.location, &mut command_reset) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => panic!("git panicked {}", err),
     }
 }
@@ -250,10 +272,11 @@ fn print_error(msg: &str) {
     eprintln!("Git Error: {}", msg);
 }
 
-fn parse_rev_list(rev_list: String, source_hashes: &Vec<String>, targets: &Vec<String>) -> Result<Adag<String, ()>, ()> {
-    let mut indexation = HashMap::new();
-    let mut graph = Dag::new();
-
+fn add_rev_list(
+    graph: &mut Dag<String, ()>,
+    indexation: &mut HashMap<String, NodeIndex>,
+    rev_list: String,
+) {
     let lines = rev_list.lines();
 
     for line in lines {
@@ -261,45 +284,18 @@ fn parse_rev_list(rev_list: String, source_hashes: &Vec<String>, targets: &Vec<S
         let op_h1 = hashes.next();
         let op_h2 = hashes.next();
 
-        //If the nodes aren't already in the graph they will be added an their
-        //index will be returned.
-        let index1 = try_add_hash(op_h1, &mut graph, &mut indexation);
-        let mut index2 = try_add_hash(op_h2, &mut graph, &mut indexation);
+        let index1 = try_add_hash(op_h1, graph, indexation);
+        let mut index2 = try_add_hash(op_h2, graph, indexation);
 
-        //We can only create an edge, if both are real nodes.
-        if index1.is_some() {
+        if let Some(i1) = index1 {
             while index2.is_some() {
-                if graph
-                    .add_edge(index2.unwrap(), index1.unwrap(), ())
-                    .is_err()
-                {
-                    eprintln!("Error while parsing commit graph from git!");
-                    return Err(());
+                if graph.update_edge(index2.unwrap(), i1, ()).is_err() {
+                    panic!("Error while parsing commit graph from git!");
                 }
-
-                index2 = try_add_hash(hashes.next(), &mut graph, &mut indexation);
+                index2 = try_add_hash(hashes.next(), graph, indexation);
             }
         }
     }
-
-    let source_indices: Vec<NodeIndex> = source_hashes.iter().filter_map(|h| indexation.get(h).cloned()).collect();
-    let (pruned_graph, indexation2) = prune_downwards(&graph, &source_indices);
-
-    if source_indices.len() == 0 {
-        eprintln!("Graph has no source!");
-        return Err(());
-    }
-
-    let sources = source_hashes.iter().filter(|h| indexation2.contains_key(&h.to_string())).cloned().collect();
-
-    Ok(
-        Adag {
-            sources: sources,
-            targets: targets.clone(),
-            graph: pruned_graph,
-            indexation: indexation2,
-        }
-    )
 }
 
 fn try_add_hash(
