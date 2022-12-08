@@ -17,48 +17,27 @@ impl PathSelection for ShortestPath {
     ) -> PriorityQueue<(NodeIndex, NodeIndex), i32> {
         let mut shortest_path = PriorityQueue::new();
         let targets_indices: HashSet<NodeIndex> = targets.clone();
+        let mut queue: VecDeque<(NodeIndex, NodeIndex, i32)> = VecDeque::new();
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
 
-        for source_index in valid_nodes.clone() {
-            let mut distance = HashMap::new();
-            let mut queue = VecDeque::new();
+        for index in valid_nodes {
+            queue.push_back((index.clone(), index.clone(), 0));
+            visited.insert(index.clone());
+        }
 
-            queue.push_back(source_index);
-            distance.insert(source_index, 0);
+        while !queue.is_empty() {
+            let (current_index, current_parent_index, current_distance) = queue.pop_front().unwrap();
+            if targets_indices.contains(&current_index) {
+                shortest_path.push((current_parent_index, current_index), -current_distance);
+            }
 
-            while !queue.is_empty() {
-                let current_index = queue.pop_front().unwrap();
-                let current_distance: i32 = distance[&current_index];
-
-                let children = graph
-                    .graph
-                    .children(current_index.clone())
-                    .iter(&graph.graph);
-                for (_, child_index) in children {
-                    match distance.get(&child_index) {
-                        Some(child_distance) => {
-                            if current_distance + 1 > child_distance.clone() {
-                                distance.insert(child_index, current_distance + 1);
-                                if targets_indices.contains(&child_index) {
-                                    shortest_path.change_priority(
-                                        &(source_index, child_index),
-                                        -(current_distance + 1),
-                                    );
-                                }
-                                queue.push_back(child_index);
-                            }
-                        }
-                        None => {
-                            distance.insert(child_index, current_distance + 1);
-                            queue.push_back(child_index);
-                            if targets_indices.contains(&child_index) {
-                                shortest_path
-                                    .push((source_index, child_index), -(current_distance + 1));
-                            }
-                        }
-                    }
+            for (_, child) in graph.graph.children(current_index).iter(&graph.graph) {
+                if visited.insert(child) {
+                    queue.push_back((child, current_parent_index, current_distance + 1));
                 }
             }
         }
+
         shortest_path
     }
 

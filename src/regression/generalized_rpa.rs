@@ -49,7 +49,6 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::f
         );
 
         let annotated = annotate_graph(input_graph);
-        let ordering = P::calculate_distances(&annotated, &targets_index, &sources_index);
 
         eprintln!(
             "----
@@ -58,6 +57,8 @@ RPA initialized
 ----",
             annotated.graph.node_count()
         );
+
+        let ordering = P::calculate_distances(&annotated, &targets_index, &sources_index);
 
         RPA {
             commits: annotated,

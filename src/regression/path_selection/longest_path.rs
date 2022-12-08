@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque, HashMap};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use daggy::{NodeIndex, Walker};
 use priority_queue::PriorityQueue;
@@ -7,69 +7,127 @@ use crate::{graph::Adag, regression::rpa_util::RPANode};
 
 use super::PathSelection;
 
-
 pub struct LongestPath;
 
 impl PathSelection for LongestPath {
-    fn calculate_distances<E: Clone>(graph: &Adag<RPANode, E>, targets: &HashSet<NodeIndex>, valid_nodes: &HashSet<NodeIndex>) -> PriorityQueue<(NodeIndex, NodeIndex), i32> {
-        let mut pq: PriorityQueue<(NodeIndex, NodeIndex), i32> = PriorityQueue::from_iter(valid_nodes.iter().map(|x| ((x.clone(), x.clone()), 0)));
-        let mut distance: HashMap<NodeIndex, (NodeIndex, i32)> = HashMap::new();
+    fn calculate_distances<E: Clone>(
+        graph: &Adag<RPANode, E>,
+        targets: &HashSet<NodeIndex>,
+        _: &HashSet<NodeIndex>,
+    ) -> PriorityQueue<(NodeIndex, NodeIndex), i32> {
+        let mut parents = HashMap::<NodeIndex, usize>::new();
+        let mut queue = VecDeque::<(NodeIndex, NodeIndex, i32)>::new();
+        let mut longest_paths = PriorityQueue::<(NodeIndex, NodeIndex), i32>::new();
+        let mut distances = HashMap::<NodeIndex, (NodeIndex, i32)>::new();
 
-        while !pq.is_empty() {
-            let ((current_source, current_target), current_distance) = pq.pop().unwrap();
+        for (_, index) in &graph.indexation {
+            let number_parents = graph.graph.parents(*index).iter(&graph.graph).count();
+            parents.insert(*index, number_parents);
 
-            let insert = match distance.get(&current_target) {
-                Some((_, old_distance)) => *old_distance != 0 && current_distance > *old_distance,
-                None => true,
-            };
-
-            if insert {
-                distance.insert(current_target, (current_source, current_distance));
-                for (_, child) in graph.graph.children(current_target).iter(&graph.graph) {
-                    pq.push((current_source, child), current_distance + 1);
-                }
+            if number_parents == 0 {
+                queue.push_front((*index, *index, 0));
+                distances.insert(*index, (*index, 0));
             }
         }
 
-        let mut res = PriorityQueue::new();
-        for target in targets {
-            let (src, dis) = distance[target];
-            res.push((src, *target), dis);
+        while !queue.is_empty() {
+            let (parent_index, current_index, distance) = queue.pop_front().unwrap();
+
+            if targets.contains(&current_index) {
+                longest_paths.push((parent_index, current_index), distance);
+            }
+
+            for (_, child_index) in graph.graph.children(current_index).iter(&graph.graph) {
+                let pets = parents[&child_index];
+                parents.insert(child_index, pets - 1);
+
+                let dis = distances.get(&child_index);
+                match dis {
+                    Some((_, d)) => {
+                        if *d < distance + 1 {
+                            distances.insert(child_index, (parent_index, distance + 1));
+                        }
+                    }
+                    None => {
+                        distances.insert(child_index, (parent_index, distance + 1));
+                    }
+                }
+
+                if parents[&child_index] == 0 {
+                    let (i, d) = distances[&child_index];
+                    queue.push_back((i, child_index, d));
+                }
+            }
         }
-        return res;
+        return longest_paths;
     }
 
-    fn extract_path<E>(graph: &Adag<RPANode, E>, source: NodeIndex, target: NodeIndex) -> VecDeque<NodeIndex> {
-        let mut pq: PriorityQueue<(NodeIndex, NodeIndex), u32> = PriorityQueue::new();
-        let mut distance = HashMap::<NodeIndex, (NodeIndex, u32)>::new();
-        pq.push((source, source), 0);
+    fn extract_path<E>(
+        graph: &Adag<RPANode, E>,
+        source: NodeIndex,
+        target: NodeIndex,
+    ) -> VecDeque<NodeIndex> {
+        let mut parents = HashMap::<NodeIndex, usize>::new();
+        let mut queue = VecDeque::<NodeIndex>::new();
 
-        while !pq.is_empty() {
-            let ((parent, current_target), current_distance) = pq.pop().unwrap();
+        queue.push_back(source);
+        while !queue.is_empty() {
+            let current = queue.pop_front().unwrap();
 
-            let insert = match distance.get(&current_target) {
-                Some((_, old_distance)) => current_distance > *old_distance,
-                None => true,
-            };
-
-            if insert {
-                distance.insert(current_target, (parent, current_distance));
-                for (_, child) in graph.graph.children(current_target).iter(&graph.graph) {
-                    pq.push((current_target, child), current_distance + 1);
+            for (_, child) in graph.graph.children(current).iter(&graph.graph) {
+                let pets = parents.get(&child);
+                match pets {
+                    Some(p) => {
+                        parents.insert(child, p + 1);
+                    }
+                    None => {
+                        parents.insert(child, 1);
+                        queue.push_back(child);
+                    }
                 }
             }
         }
 
+        let mut queue2 = VecDeque::<(NodeIndex, i32)>::new();
+        let mut distances = HashMap::<NodeIndex, (NodeIndex, i32)>::new();
         let mut path = VecDeque::<NodeIndex>::new();
-        let mut child = target;
-        loop {
-            path.push_front(child);
-            let (parent, _) = distance[&child];
 
-            if parent == child {
+        queue2.push_back((source, 0));
+        while !queue2.is_empty() {
+            let (current, distance) = queue2.pop_front().unwrap();
+
+            if current == target {
                 break;
-            } else {
-                child = parent;
+            }
+
+            for (_, child) in graph.graph.children(current).iter(&graph.graph) {
+                let pets = &parents[&child].clone();
+                parents.insert(child, pets - 1);
+
+                match distances.get(&child) {
+                    Some((_, old_d)) => {
+                        if distance + 1 > *old_d {
+                            distances.insert(child, (current, distance + 1));
+                        }
+                    },
+                    None => {
+                        distances.insert(child, (current, distance + 1));
+                    },
+                }
+
+                if pets - 1 == 0 {
+                    let (_, dis) = distances[&child];
+                    queue2.push_back((child, dis));
+                }
+            }
+        }
+
+        let mut c = &target;
+        loop {
+            path.push_front(c.clone());
+            match distances.get(c) {
+                Some((p, _)) => c = p,
+                None => break,
             }
         }
 
