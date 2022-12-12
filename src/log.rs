@@ -25,9 +25,9 @@ pub fn write_header(directory: &std::path::PathBuf, args: &Args, sources: &Vec<S
     let directory_name = date.format("%Y%m%d_%H%M%S").to_string();
     let mut path = directory.clone();
 
-    if !directory.is_dir() {
-        panic!("{} isn't a directory", directory.display());
-    }
+    // if !directory.is_dir() {
+    //     panic!("{} isn't a directory", directory.display());
+    // }
 
     let header = format!(
         "date: {}
@@ -60,7 +60,7 @@ pid,commit,status,all,setup,query,distance
     );
 
     path = path.join(directory_name);
-    fs::create_dir(&path).expect("Couldn't create log directory!");
+    fs::create_dir_all(&path).expect("Couldn't create log directory!");
 
     fs::write(&summary_path(&path), &header).expect("Couldn't create benchmark file!");
     path
