@@ -3,7 +3,7 @@ use crate::graph::{prune_downwards, Adag};
 use daggy::{Dag, NodeIndex};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-use std::process::Command;
+use std::process::{Command, Output};
 use std::{collections::HashMap, hash::Hash};
 
 use super::{run_command_sync, Worktree};
@@ -12,10 +12,6 @@ use super::{run_command_sync, Worktree};
 pub struct Git;
 
 impl DVCS for Git {
-    //TODO: Right now when passing a repository as string/path, we assume that
-    //the path is valid. We should check that the path
-    //is valid.
-
     fn commit_graph(
         repository: &str,
         sources: Vec<String>,
@@ -23,45 +19,51 @@ impl DVCS for Git {
     ) -> Result<Adag<String, ()>, ()> {
         let mut graph = Dag::<String, ()>::new();
         let mut indexation = HashMap::<String, NodeIndex>::new();
-        
-        for source in &sources {
-            let mut command = Command::new("git");
-            command
-                .args(["rev-list", "--parents"])
-                .args(targets.clone())
-                .arg("--not")
-                .arg(source.clone());
 
-            let rev_list = match run_command_sync(repository, &mut command) {
-                Err(err) => {
-                    print_error(err.to_string().as_str());
-                    Err(())
-                }
-                Ok(output) => {
-                    if output.status.success() {
-                        match String::from_utf8(output.stdout) {
-                            Ok(r) => Ok(r),
-                            Err(_) => Err(()),
-                        }
-                    } else {
-                        print_error(String::from_utf8(output.stderr).unwrap().as_str());
-                        Err(())
-                    }
-                }
-            };
+        let lca = if sources.len() > 1 {
+            let mut lca_command = Command::new("git");
+            lca_command
+                .arg("merge-base")
+                .arg("--octopus")
+                .args(&sources);
 
-            add_rev_list(&mut graph, &mut indexation, rev_list?);
-        }
+            handle_result(run_command_sync(repository, &mut lca_command))
+        } else if sources.len() == 1 {
+            Ok(sources[0].clone())
+        } else {
+            print_error("Missing source!");
+            Err(())
+        };
+
+        dbg!(&lca);
+
+        let mut rev_command = Command::new("git");
+        rev_command
+            .args(["rev-list", "--parents"])
+            .args(&targets)
+            .arg("--not")
+            .arg(lca?);
+
+        let rev_list = handle_result(run_command_sync(repository, &mut rev_command));
+        add_rev_list(&mut graph, &mut indexation, rev_list?);
 
         let source_indices = sources
             .iter()
             .filter_map(|h| indexation.get(h).cloned())
             .collect();
         let (pruned_graph, pruned_indexation) = prune_downwards(&graph, &source_indices);
-        let remaining_sources = sources.iter().filter(|h| pruned_indexation.contains_key(*h)).cloned().collect();
-        let remaining_targets = targets.iter().filter(|h| pruned_indexation.contains_key(*h)).cloned().collect();
+        let remaining_sources = sources
+            .iter()
+            .filter(|h| pruned_indexation.contains_key(*h))
+            .cloned()
+            .collect();
+        let remaining_targets = targets
+            .iter()
+            .filter(|h| pruned_indexation.contains_key(*h))
+            .cloned()
+            .collect();
 
-        return Ok (Adag {
+        return Ok(Adag {
             graph: pruned_graph,
             indexation: pruned_indexation,
             sources: remaining_sources,
@@ -313,5 +315,25 @@ fn try_add_hash(
     } else {
         //UNWRAP: We checked before, that added has this key.
         Some(*added.get(hash).unwrap())
+    }
+}
+
+fn handle_result(res: std::io::Result<Output>) -> Result<String, ()> {
+    match res {
+        Ok(output) => {
+            if output.status.success() {
+                match String::from_utf8(output.stdout) {
+                    Ok(r) => Ok(r.trim().to_string()),
+                    Err(_) => Err(()),
+                }
+            } else {
+                print_error(String::from_utf8(output.stderr).unwrap().as_str());
+                Err(())
+            }
+        }
+        Err(err) => {
+            print_error(err.to_string().as_str());
+            Err(())
+        }
     }
 }
