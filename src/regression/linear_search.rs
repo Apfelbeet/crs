@@ -81,7 +81,7 @@ impl RegressionAlgorithm for LinearSearch {
         }
     }
 
-    fn next_job(&mut self, _: u32) -> super::AlgorithmResponse {
+    fn next_job(&mut self, _: u32, _: u32) -> super::AlgorithmResponse {
         //If there are still unchecked nodes and no regression point has been
         //found yet, then we want to continue with the next node on the path.
         if self.index > 0 && self.valid_nodes.len() < 2 {

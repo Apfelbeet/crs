@@ -182,7 +182,7 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
         }
     }
 
-    fn next_job(&mut self, capacity: u32) -> super::AlgorithmResponse {
+    fn next_job(&mut self, capacity: u32, expected_capacity: u32) -> super::AlgorithmResponse {
         //If there is no active search right now, we have to pick a new path and
         //start another search.
         if self.current_search.is_none() && self.extended_search.is_none() {
@@ -227,9 +227,9 @@ length: {}
         }
 
         if let Some(search) = self.current_search.as_mut() {
-            search.next_job(capacity)
+            search.next_job(capacity, expected_capacity)
         } else if let Some((_, ex_search)) = self.extended_search.as_mut() {
-            ex_search.next_job(capacity)
+            ex_search.next_job(capacity, expected_capacity)
         } else {
             AlgorithmResponse::InternalError("No active search!")
         }

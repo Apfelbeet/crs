@@ -203,7 +203,7 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
         }
     }
 
-    fn next_job(&mut self, capacity: u32) -> super::AlgorithmResponse {
+    fn next_job(&mut self, capacity: u32, expected_capacity: u32) -> super::AlgorithmResponse {
         if let Some(p) = &mut self.parents {
             match p.parents.pop_front() {
                 Some(hash) => {
@@ -219,7 +219,7 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
                 }
             }
         } else if let Some(sub) = &mut self.sub {
-            sub.next_job(capacity)
+            sub.next_job(capacity, expected_capacity)
         } else {
             AlgorithmResponse::InternalError("Unexpected request!")
         }

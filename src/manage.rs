@@ -2,7 +2,7 @@ use crate::dvcs::DVCS;
 use crate::log::{self, TemporalLogData};
 use crate::process::{LocalProcess, ProcessError, ProcessResponse};
 use crate::regression::RegressionAlgorithm;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::mpsc::{self, RecvError, TryRecvError};
 use std::time::Instant;
@@ -18,6 +18,7 @@ struct ProcessPool<T> {
     idle_processes: Vec<LocalProcess<T>>,
     active_processes: HashMap<u32, LocalProcess<T>>,
     commit_to_process: HashMap<String, u32>,
+    interrupted_processes: HashSet<u32>,
     _marker: PhantomData<T>,
 }
 
@@ -52,6 +53,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
         idle_processes: Vec::new(),
         active_processes: HashMap::new(),
         commit_to_process: HashMap::new(),
+        interrupted_processes: HashSet::new(),
         _marker: PhantomData,
     };
 
@@ -61,7 +63,9 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
     //iteration.
     while !core.done() {
         let mut wait = false;
-        match core.next_job(pool.idle_processes.len() as u32 + pool.empty_slots) {
+        let capacity = pool.idle_processes.len() as u32 + pool.empty_slots;
+        let expected_capacity = capacity + pool.interrupted_processes.len() as u32;
+        match core.next_job(capacity, expected_capacity) {
             crate::regression::AlgorithmResponse::Job(commit) => {
                 let setup_time = Instant::now();
                 let process = load_process(
@@ -140,7 +144,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
     eprintln!("Wait for active processes to finish!");
     if options.do_interrupt {
         for (_, process) in &mut pool.active_processes {
-            process.interrupt()
+            process.interrupt();
         }
     }
 
@@ -292,13 +296,14 @@ fn deactivate_process<T: DVCS>(id: u32, commit: &str, pool: &mut ProcessPool<T>)
         .remove(&id)
         .expect(format!("Couldn't find process {} in pool of active processes!", id).as_str());
     pool.commit_to_process.remove(commit);
-
+    pool.interrupted_processes.remove(&id);
     pool.idle_processes.push(process);
 }
 
 fn interrupt<T: DVCS>(commit: &str, pool: &mut ProcessPool<T>) {
     let id_ = pool.commit_to_process.get(commit);
     if let Some(id) = id_ {
+        pool.interrupted_processes.insert(*id);
         let process_ = pool.active_processes.get_mut(&id);
         if let Some(process) = process_ {
             process.interrupt();

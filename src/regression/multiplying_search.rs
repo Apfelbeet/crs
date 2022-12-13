@@ -19,9 +19,9 @@ impl RegressionAlgorithm for MultiplyingSearch {
         self.search.add_result(commit, result);
     }
 
-    fn next_job(&mut self, capacity: u32) -> super::AlgorithmResponse {
+    fn next_job(&mut self, _: u32, expected_capacity: u32) -> super::AlgorithmResponse {
         self.search
-            .next_job(capacity as usize, take_samples)
+            .next_job(expected_capacity as usize, take_samples)
     }
 
     fn interrupts(&mut self) -> Vec<String> {

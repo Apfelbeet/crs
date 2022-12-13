@@ -57,7 +57,7 @@ pub struct RegressionPoint {
 
 pub trait RegressionAlgorithm {
     fn add_result(&mut self, commit: String, result: TestResult);
-    fn next_job(&mut self, capacity: u32) -> AlgorithmResponse;
+    fn next_job(&mut self, capacity: u32, expected_capacity: u32) -> AlgorithmResponse;
     fn interrupts(&mut self) -> Vec<String>;
     fn done(&self) -> bool;
     fn results(&self) -> Vec<RegressionPoint>;
