@@ -9,7 +9,7 @@ use super::{RegressionPoint, TestResult};
 pub const NAME: &str = "interval_search2.rs";
 
 pub type SampleFunction =
-    fn(&VecDeque<String>, &String, &String, usize, usize) -> Result<VecDeque<String>, ()>;
+    fn(&VecDeque<String>, &String, &String, usize) -> Result<VecDeque<String>, ()>;
 pub struct IntervalSearch {
     pub path: VecDeque<String>,
     pub target: String,
@@ -128,11 +128,10 @@ impl IntervalSearch {
     pub fn next_job(
         &mut self,
         capacity: usize,
-        iteration: usize,
         take_samples: SampleFunction,
     ) -> super::AlgorithmResponse {
         if self.step.is_none() {
-            let jobs = take_samples(&self.path, &self.left, &self.right, capacity, iteration)
+            let jobs = take_samples(&self.path, &self.left, &self.right, capacity)
                 .expect("couldn't take samples!");
 
             let step = Step {

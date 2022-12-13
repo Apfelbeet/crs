@@ -18,7 +18,7 @@ impl RegressionAlgorithm for BinarySearch {
     }
 
     fn next_job(&mut self, capacity: u32) -> super::AlgorithmResponse {
-        self.search.next_job(capacity as usize, 0, take_uniform_sample)
+        self.search.next_job(capacity as usize, take_uniform_sample)
     }
 
     fn done(&self) -> bool {
@@ -39,7 +39,6 @@ fn take_uniform_sample<S: Clone + Eq>(
     left: &S,
     right: &S,
     sample_size: usize,
-    _iteration: usize,
 ) -> Result<VecDeque<S>, ()> {
     let mut left_index = None;
     let mut right_index = None;

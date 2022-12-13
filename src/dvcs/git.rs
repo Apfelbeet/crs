@@ -35,8 +35,6 @@ impl DVCS for Git {
             Err(())
         };
 
-        dbg!(&lca);
-
         let mut rev_command = Command::new("git");
         rev_command
             .args(["rev-list", "--parents"])
