@@ -83,8 +83,10 @@ fn main() {
     let repo_path = &args.repository.display().to_string();
     let test_path = &args.test.display().to_string();
 
+    eprintln!("Processing commit graph ...");
     let g = Git::commit_graph(repo_path, sources.clone(), targets).unwrap();
     // TODO: There has to be a nicer way.
+    eprintln!("Starting search ...");
     match args.search_mode.as_str() {
         "exrpa-long-bin" => {
             let mut rpa = RPA::<LongestPath, BinarySearch, ()>::new(
