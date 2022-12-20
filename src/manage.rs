@@ -242,7 +242,7 @@ fn load_process<'a, T: DVCS>(
     commit: &str,
 ) -> &'a mut LocalProcess<T> {
     let available_process = if !pool.idle_processes.is_empty() {
-        get_nearest_process(pool, commit)
+        pool.idle_processes.pop().unwrap()
     } else if pool.empty_slots > 0 {
         let process = LocalProcess::new(pool.next_id, repository, worktree_location);
         pool.next_id += 1;
@@ -256,20 +256,6 @@ fn load_process<'a, T: DVCS>(
     pool.commit_to_process.insert(commit.to_string(), id);
     pool.active_processes.insert(id, available_process);
     pool.active_processes.get_mut(&id).unwrap()
-}
-
-fn get_nearest_process<'a, T: DVCS>(pool: &'a mut ProcessPool<T>, commit: &str) -> LocalProcess<T> {
-    let mut min_distance = None;
-    let mut min_index = None;
-    for (i, p) in pool.idle_processes.iter().enumerate() {
-        let distance = T::distance(&p.worktree, commit);
-        if min_distance.is_none() || min_distance.unwrap() > distance {
-            min_distance = Some(distance);
-            min_index = Some(i);
-        }
-    }
-
-    pool.idle_processes.remove(min_index.unwrap())
 }
 
 fn try_recv_response<T: DVCS>(

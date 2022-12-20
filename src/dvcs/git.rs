@@ -199,35 +199,6 @@ impl DVCS for Git {
             }
         }
     }
-
-    fn distance(worktree: &Worktree, commit: &str) -> u32 {
-        let mut command = Command::new("git");
-        command.args(["diff", "--numstat", "HEAD", commit]);
-
-        match run_command_sync(&worktree.location, &mut command) {
-            Ok(output) => {
-                if output.status.success() {
-                    let text = String::from_utf8(output.stdout).unwrap();
-                    let mut sum = 0;
-                    for line in text.lines() {
-                        let parts = line.split_whitespace();
-                        for (i, part) in parts.enumerate() {
-                            if let Ok(number) = part.parse::<u32>() {
-                                sum += number;
-                            }
-                            if i == 1 {
-                                break;
-                            }
-                        }
-                    }
-                    sum
-                } else {
-                    panic!("git panicked {}", String::from_utf8(output.stderr).unwrap())
-                }
-            }
-            Err(err) => panic!("git panicked {}", err),
-        }
-    }
 }
 
 fn worktree_clean(worktree: &Worktree) {

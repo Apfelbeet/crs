@@ -16,7 +16,6 @@ pub struct TemporalLogData {
     all_sum: f64,
     setup_sum: f64,
     query_sum: f64,
-    diff_sum: u128,
     len: u32,
 }
 
@@ -43,7 +42,7 @@ scheduling: {},
 start: {:?},
 targets: {:?},
 ---
-pid,commit,status,all,setup,query,distance
+pid,commit,status,all,setup,query
 ",
         date.format("%Y-%m-%d %H:%M:%S").to_string(),
         args.repository.display(),
@@ -71,7 +70,6 @@ pub fn empty() -> TemporalLogData {
         all_sum: 0.0,
         setup_sum: 0.0,
         query_sum: 0.0,
-        diff_sum: 0,
         len: 0,
     }
 }
@@ -91,19 +89,17 @@ pub fn add_result(
             log_data.all_sum += exe_data.all.as_secs_f64();
             log_data.setup_sum += exe_data.setup.as_secs_f64();
             log_data.query_sum += exe_data.query.as_secs_f64();
-            log_data.diff_sum += exe_data.diff as u128;
             log_data.len += 1;
 
             writeln!(
                 &mut file,
-                "{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{}",
                 result.pid,
                 result.commit,
                 res,
                 exe_data.all.as_secs_f64(),
                 exe_data.setup.as_secs_f64(),
                 exe_data.query.as_secs_f64(),
-                exe_data.diff
             )
             .unwrap();
         }
@@ -134,17 +130,16 @@ pub fn write_summary(
     writeln!(&mut file, "---").unwrap();
     writeln!(
         &mut file,
-        "-,-,-,{},{},{},{}",
-        log_data.all_sum, log_data.setup_sum, log_data.query_sum, log_data.diff_sum
+        "-,-,-,{},{},{}",
+        log_data.all_sum, log_data.setup_sum, log_data.query_sum
     )
     .unwrap();
     writeln!(
         &mut file,
-        "-,-,-,{},{},{},{}",
+        "-,-,-,{},{},{}",
         log_data.all_sum / log_data.len as f64,
         log_data.setup_sum / log_data.len as f64,
         log_data.query_sum / log_data.len as f64,
-        log_data.diff_sum / log_data.len as u128
     )
     .unwrap();
 

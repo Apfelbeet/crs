@@ -31,7 +31,6 @@ pub struct ExecutionData {
     pub setup: Duration,
     pub query: Duration,
     pub all: Duration,
-    pub diff: u32,
 }
 
 pub struct ProcessResponse {
@@ -90,8 +89,6 @@ impl<S: DVCS> LocalProcess<S> {
                 error(&trans, id, commit, ProcessError::Interrupt);
                 return;
             }
-
-            let distance = S::distance(&worktree, &commit);
 
             if interrupt_receiver.try_recv().is_ok() {
                 error(&trans, id, commit, ProcessError::Interrupt);
@@ -175,7 +172,6 @@ impl<S: DVCS> LocalProcess<S> {
                         all: overall_duration.unwrap(),
                         setup: checkout_duration.unwrap(),
                         query: query_duration.unwrap(),
-                        diff: distance,
                     };
                     trans
                         .send(ProcessResponse {
