@@ -1,5 +1,6 @@
 use crate::dvcs::{run_script_async, Worktree, DVCS};
 use crate::regression::TestResult;
+use crate::log::output_path;
 use std::marker::PhantomData;
 use std::sync::mpsc;
 use std::{thread, fmt};
@@ -71,8 +72,8 @@ impl<S: DVCS> LocalProcess<S> {
         let worktree = self.worktree.clone();
         let (interrupt_transmitter, interrupt_receiver) = mpsc::channel();
         self.interrupt_transmitter = Some(interrupt_transmitter.clone());
-        let log_stdout = log_directory.map(|p| p.join(format!("{}_stdout", commit)));
-        let log_stderr = log_directory.map(|p| p.join(format!("{}_stderr", commit)));
+        let log_stdout = log_directory.map(|p| output_path(p).join(format!("{}_stdout", commit)));
+        let log_stderr = log_directory.map(|p| output_path(p).join(format!("{}_stderr", commit)));
 
         thread::spawn(move || {
             if interrupt_receiver.try_recv().is_ok() {

@@ -76,7 +76,7 @@ fn main() {
 
     let options = Options {
         worktree_location,
-        log_location,
+        log_location: log_location.clone(),
         do_interrupt: args.interrupt,
     };
 
@@ -95,6 +95,7 @@ fn main() {
                     propagate: !args.no_propagate,
                     extended_search: !args.no_extended,
                 },
+                log_location
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
         }
@@ -105,6 +106,7 @@ fn main() {
                     propagate: !args.no_propagate,
                     extended_search: !args.no_extended,
                 },
+                log_location
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
         }
@@ -115,6 +117,7 @@ fn main() {
                     propagate: !args.no_propagate,
                     extended_search: !args.no_extended,
                 },
+                log_location
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
         }
@@ -125,6 +128,7 @@ fn main() {
                     propagate: !args.no_propagate,
                     extended_search: !args.no_extended,
                 },
+                log_location
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
         }
@@ -135,6 +139,7 @@ fn main() {
                     propagate: !args.no_propagate,
                     extended_search: !args.no_extended,
                 },
+                log_location
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
         }
@@ -145,6 +150,7 @@ fn main() {
                     propagate: !args.no_propagate,
                     extended_search: !args.no_extended,
                 },
+                log_location
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
         }

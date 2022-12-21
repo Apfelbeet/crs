@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, OpenOptions},
+    fs::{self, OpenOptions, create_dir_all},
     time::Duration,
 };
 
@@ -24,10 +24,6 @@ pub fn write_header(directory: &std::path::PathBuf, args: &Args, sources: &Vec<S
     let directory_name = date.format("%Y%m%d_%H%M%S").to_string();
     let mut path = directory.clone();
 
-    // if !directory.is_dir() {
-    //     panic!("{} isn't a directory", directory.display());
-    // }
-
     let header = format!(
         "date: {}
 repository: {}
@@ -41,8 +37,6 @@ search mode: {},
 scheduling: {}, 
 start: {:?},
 targets: {:?},
----
-pid,commit,status,all,setup,query
 ",
         date.format("%Y-%m-%d %H:%M:%S").to_string(),
         args.repository.display(),
@@ -58,10 +52,14 @@ pid,commit,status,all,setup,query
         targets
     );
 
+    let header2 = "pid,commit,status,all,setup,query\n";
+
     path = path.join(directory_name);
     fs::create_dir_all(&path).expect("Couldn't create log directory!");
+    fs::create_dir_all(output_path(&path)).expect("Couldn't create log directory!");
 
     fs::write(&summary_path(&path), &header).expect("Couldn't create benchmark file!");
+    fs::write(&query_path(&path), &header2).expect("Couldn't create benchmark file!");
     path
 }
 
@@ -81,7 +79,7 @@ pub fn add_result(
 ) {
     let mut file = OpenOptions::new()
         .append(true)
-        .open(summary_path(&path))
+        .open(query_path(&path))
         .unwrap();
 
     match &result.result {
@@ -117,7 +115,7 @@ pub fn write_summary(
 ) {
     let mut file = OpenOptions::new()
         .append(true)
-        .open(summary_path(&path))
+        .open(query_path(&path))
         .unwrap();
 
     writeln!(&mut file, "---").unwrap();
@@ -152,5 +150,34 @@ pub fn write_summary(
 }
 
 fn summary_path(path: &std::path::PathBuf) -> std::path::PathBuf {
-    path.join("summary")
+    path.join("arguments")
+}
+
+fn query_path(path: &std::path::PathBuf) -> std::path::PathBuf {
+    path.join("queries")
+}
+
+pub fn output_path(path: &std::path::PathBuf) -> std::path::PathBuf {
+    path.join("output")
+}
+
+pub fn add_dir(name: &str, path: &std::path::PathBuf) -> std::path::PathBuf {
+    let new_path = path.join(name);
+    create_dir_all(&new_path).expect("couldn't create log directory");
+    new_path
+}
+
+pub fn create_file(name: &str, path: &std::path::PathBuf) -> std::path::PathBuf {
+    let new_path = path.join(name);
+    fs::File::create(&new_path).expect(&format!("Creating {:?} failed", &new_path));
+    new_path
+}
+
+pub fn write_to_file(text: &str, path: &std::path::PathBuf) {
+    let mut file = OpenOptions::new()
+    .append(true)
+    .open(path)
+    .unwrap();
+    
+    file.write_all(text.as_bytes()).expect(&format!("Couldn't write to {:?}", path));
 }

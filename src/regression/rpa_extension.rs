@@ -2,7 +2,7 @@ use std::{collections::{HashSet, VecDeque}, marker::PhantomData};
 
 use daggy::{NodeIndex, Walker};
 
-use crate::graph::Adag;
+use crate::{graph::Adag, log, regression::rpa_search::main_log_file};
 
 use super::{
     AlgorithmResponse, PathAlgorithm, RegressionAlgorithm, RegressionPoint,
@@ -17,6 +17,8 @@ pub struct ExtendedSearch<P: PathSelection, S: PathAlgorithm + RegressionAlgorit
     target: String,
     graph: Adag<RPANode, E>,
     valid_nodes: HashSet<NodeIndex>,
+    log_path: Option<std::path::PathBuf>,
+    counter: usize,
     _marker: PhantomData<P>,
 }
 
@@ -26,7 +28,7 @@ pub struct ParentsSearch {
 }
 
 impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> ExtendedSearch<P, S, E> {
-    pub fn new(adag: Adag<RPANode, E>, reg: RegressionPoint, valid_nodes: &HashSet<NodeIndex>) -> Self {
+    pub fn new(adag: Adag<RPANode, E>, reg: RegressionPoint, valid_nodes: &HashSet<NodeIndex>, log_path: Option<std::path::PathBuf>, counter: usize) -> Self {
         let mut q = VecDeque::<NodeIndex>::new();
         let mut queued = HashSet::<NodeIndex>::new();
 
@@ -68,7 +70,7 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Extende
 
         if let Some(cp_index) = cached_parent {
             let cp = adag.hash_from_index(cp_index);
-            let search = create_sub::<P, S, E>(&adag, cp, valid_nodes);
+            let search = create_sub::<P, S, E>(&adag, cp, valid_nodes, &log_path, counter);
             let mut search = ExtendedSearch {
                 parents: None,
                 sub: search,
@@ -77,6 +79,8 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Extende
                 target: reg.target,
                 graph: adag,
                 valid_nodes: valid_nodes.clone(),
+                log_path,
+                counter,
                 _marker: PhantomData,
             };
 
@@ -91,6 +95,8 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Extende
                 target: reg.target,
                 graph: adag,
                 valid_nodes: valid_nodes.clone(),
+                log_path,
+                counter,
                 _marker: PhantomData,
             }
         } else {
@@ -101,6 +107,13 @@ parents: {:?}
 ----",
                 p
             );
+
+            if let Some(lp) = &log_path {
+                log::write_to_file(&format!("Extended Parent Search ({}): Initial Candidates {:?}\n", counter, p), &main_log_file(&lp));
+                let path_file = log::create_file(&format!("{}_parents", counter), &lp);
+                let path_string = p.clone().make_contiguous().join("\n");
+                log::write_to_file(&path_string, &path_file);
+            }
 
             ExtendedSearch {
                 parents: Some(ParentsSearch {
@@ -113,6 +126,8 @@ parents: {:?}
                 target: reg.target,
                 graph: adag,
                 valid_nodes: valid_nodes.clone(),
+                log_path,
+                counter,
                 _marker: PhantomData,
             }
         }
@@ -173,7 +188,13 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
                             }
                         },
                         None => {
-                            ps.parents.push_back(current);
+                            if let Some(log_path) = &self.log_path {
+                                let file_path = log_path.join(format!("{}_parents", self.counter));
+                                println!("aaa {:?}", file_path);
+                                log::write_to_file(&format!("{}\n", &current), &file_path);
+                            }
+                            
+                            ps.parents.push_back(current); 
                         }
                     }
                 }
@@ -196,7 +217,7 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
 
         //When we found a invalid parent, we start with the second phase.
         if let Some(nt) = new_target {
-            let search = create_sub::<P, S, E>(&self.graph, nt, &self.valid_nodes);
+            let search = create_sub::<P, S, E>(&self.graph, nt, &self.valid_nodes, &self.log_path, self.counter);
             self.parents = None;
             self.sub = search;
             self.check_sub_done();
@@ -246,7 +267,7 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
     }
 }
 
-fn create_sub<P: PathSelection, S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode, E>, target: String, valid_nodes: &HashSet<NodeIndex>) -> Option<S> {
+fn create_sub<P: PathSelection, S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode, E>, target: String, valid_nodes: &HashSet<NodeIndex>, log_path: &Option<std::path::PathBuf>, counter: usize) -> Option<S> {
     let target_index = graph.index(&target);
     let targets = HashSet::from([target_index]);
 
@@ -258,7 +279,18 @@ fn create_sub<P: PathSelection, S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode
         .iter()
         .map(|i| graph.node_from_index(*i).hash)
         .collect::<VecDeque<String>>();
+    
     let path_len = hash_path.len();
+    let source_hash = graph.hash_from_index(*source_index);
+    let target_hash = graph.hash_from_index(target_index);
+
+    if let Some(log_path) = log_path {
+        log::write_to_file(&format!("Extended Path Search ({}): From {} to {}. Path Length: {}\n", counter, source_hash, target_hash, path_len), &main_log_file(log_path));
+        let path_file = log::create_file(&format!("{}_path", counter), &log_path);
+        let path_string = hash_path.clone().make_contiguous().join("\n");
+        log::write_to_file(&path_string, &path_file);
+    }
+
     let search = S::new(hash_path);
 
     eprintln!(
@@ -267,8 +299,8 @@ picked extended path
 \"{}\" to \"{}\"
 lenght: {}
 ----",
-        graph.hash_from_index(*source_index),
-        graph.hash_from_index(target_index),
+        source_hash,
+        target_hash,
         path_len
     );
 

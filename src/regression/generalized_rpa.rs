@@ -3,6 +3,7 @@ use std::{
     marker::PhantomData,
 };
 
+use crate::log;
 use daggy::{NodeIndex, Walker};
 use priority_queue::PriorityQueue;
 
@@ -25,13 +26,19 @@ pub struct RPA<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clon
     regressions: Vec<RegressionPoint>,
     settings: Settings,
     interrupts: Vec<String>,
+    log_path: Option<std::path::PathBuf>,
+    counter: usize,
     _marker: PhantomData<P>,
 }
 
 impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::fmt::Debug>
     RPA<P, S, E>
 {
-    pub fn new(input_graph: Adag<String, E>, settings: Settings) -> Self {
+    pub fn new(
+        input_graph: Adag<String, E>,
+        settings: Settings,
+        log_path: Option<std::path::PathBuf>,
+    ) -> Self {
         let targets_index = HashSet::from_iter(
             input_graph
                 .targets
@@ -59,6 +66,10 @@ RPA initialized
         );
 
         let ordering = P::calculate_distances(&annotated, &targets_index, &sources_index);
+        let exrpa_log_dir = log_path.map(|p| log::add_dir("exrpa", &p));
+        if let Some(log_dir) = &exrpa_log_dir {
+            log::create_file("summary", log_dir);
+        }
 
         RPA {
             commits: annotated,
@@ -70,6 +81,8 @@ RPA initialized
             regressions: vec![],
             interrupts: vec![],
             settings,
+            log_path: exrpa_log_dir,
+            counter: 0,
             _marker: PhantomData,
         }
     }
@@ -137,9 +150,16 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
             if search.done() {
                 if self.settings.extended_search {
                     let temp_reg = search.results()[0].clone();
+                    self.counter += 1;
                     self.extended_search = Some((
                         temp_reg,
-                        ExtendedSearch::new(self.commits.clone(), search.results()[0].clone(), &self.valid_nodes),
+                        ExtendedSearch::new(
+                            self.commits.clone(),
+                            search.results()[0].clone(),
+                            &self.valid_nodes,
+                            self.log_path.clone(),
+                            self.counter,
+                        ),
                     ));
                 } else {
                     reg_point = Some(search.results()[0].clone());
@@ -157,9 +177,16 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
                     self.extended_search = None;
                 } else {
                     let new_reg = regs[0].clone();
+                    self.counter += 1;
                     self.extended_search = Some((
                         new_reg.clone(),
-                        ExtendedSearch::new(self.commits.clone(), new_reg.clone(), &self.valid_nodes),
+                        ExtendedSearch::new(
+                            self.commits.clone(),
+                            new_reg.clone(),
+                            &self.valid_nodes,
+                            self.log_path.clone(),
+                            self.counter,
+                        ),
                     ));
                 }
             } else {
@@ -178,7 +205,8 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
         }
 
         if result == TestResult::True {
-            self.ordering = P::calculate_distances(&self.commits, &self.remaining_targets, &self.valid_nodes);
+            self.ordering =
+                P::calculate_distances(&self.commits, &self.remaining_targets, &self.valid_nodes);
         }
     }
 
@@ -186,6 +214,7 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
         //If there is no active search right now, we have to pick a new path and
         //start another search.
         if self.current_search.is_none() && self.extended_search.is_none() {
+            self.counter += 1;
             let mut path_indices = None;
 
             while !self.ordering.is_empty() {
@@ -211,7 +240,18 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
                 })
                 .collect::<VecDeque<String>>();
 
+
             let len = path.len();
+            let source_hash = &self.commits.graph.node_weight(start).unwrap().hash;
+            let target_hash = &self.commits.graph.node_weight(end).unwrap().hash;
+
+            if let Some(log_path) = &self.log_path {
+                log::write_to_file(&format!("Path Search ({}): From {} to {}. Path Length: {}\n", self.counter, source_hash, target_hash, len), &main_log_file(log_path));
+                let path_file = log::create_file(&format!("{}_path", self.counter), &log_path);
+                let path_string = path.clone().make_contiguous().join("\n");
+                log::write_to_file(&path_string, &path_file);
+            }
+
             let search = S::new(path);
             eprintln!(
                 "RPA - Algorithm:
@@ -219,10 +259,9 @@ picked new path
 {:?} to {:?}
 length: {}
 ----",
-                self.commits.graph.node_weight(start).unwrap().hash,
-                self.commits.graph.node_weight(end).unwrap().hash,
-                len,
+                source_hash, target_hash, len,
             );
+
             self.current_search = Some(search);
         }
 
@@ -292,4 +331,8 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<P, 
             .node_weight(index.clone())
             .expect("node_from_index_unchecked() failed!")
     }
+}
+
+pub fn main_log_file(path: &std::path::PathBuf) -> std::path::PathBuf {
+    path.join("summary")
 }
