@@ -10,56 +10,87 @@ use super::PathSelection;
 pub struct LongestPath;
 
 impl PathSelection for LongestPath {
+    // fn calculate_distances<E: Clone>(
+    //     graph: &Adag<RPANode, E>,
+    //     targets: &HashSet<NodeIndex>,
+    //     _: &HashSet<NodeIndex>,
+    // ) -> PriorityQueue<(NodeIndex, NodeIndex), i32> {
+    //     let mut parents = HashMap::<NodeIndex, usize>::new();
+    //     let mut queue = VecDeque::<(NodeIndex, NodeIndex, i32)>::new();
+    //     let mut longest_paths = PriorityQueue::<(NodeIndex, NodeIndex), i32>::new();
+    //     let mut distances = HashMap::<NodeIndex, (NodeIndex, i32)>::new();
+
+    //     for (_, index) in &graph.indexation {
+    //         let number_parents = graph.graph.parents(*index).iter(&graph.graph).count();
+    //         parents.insert(*index, number_parents);
+
+    //         if number_parents == 0 {
+    //             queue.push_front((*index, *index, 0));
+    //             distances.insert(*index, (*index, 0));
+    //         }
+    //     }
+
+    //     while !queue.is_empty() {
+    //         let (parent_index, current_index, distance) = queue.pop_front().unwrap();
+
+    //         if targets.contains(&current_index) {
+    //             longest_paths.push((parent_index, current_index), distance);
+    //         }
+
+    //         for (_, child_index) in graph.graph.children(current_index).iter(&graph.graph) {
+    //             let pets = parents[&child_index];
+    //             parents.insert(child_index, pets - 1);
+
+    //             let dis = distances.get(&child_index);
+    //             match dis {
+    //                 Some((_, d)) => {
+    //                     if *d < distance + 1 {
+    //                         distances.insert(child_index, (parent_index, distance + 1));
+    //                     }
+    //                 }
+    //                 None => {
+    //                     distances.insert(child_index, (parent_index, distance + 1));
+    //                 }
+    //             }
+
+    //             if parents[&child_index] == 0 {
+    //                 let (i, d) = distances[&child_index];
+    //                 queue.push_back((i, child_index, d));
+    //             }
+    //         }
+    //     }
+    //     return longest_paths;
+    // }
+
     fn calculate_distances<E: Clone>(
         graph: &Adag<RPANode, E>,
         targets: &HashSet<NodeIndex>,
-        _: &HashSet<NodeIndex>,
+        valid_nodes: &HashSet<NodeIndex>,
     ) -> PriorityQueue<(NodeIndex, NodeIndex), i32> {
-        let mut parents = HashMap::<NodeIndex, usize>::new();
-        let mut queue = VecDeque::<(NodeIndex, NodeIndex, i32)>::new();
-        let mut longest_paths = PriorityQueue::<(NodeIndex, NodeIndex), i32>::new();
-        let mut distances = HashMap::<NodeIndex, (NodeIndex, i32)>::new();
+        let mut shortest_path = PriorityQueue::new();
+        let targets_indices: HashSet<NodeIndex> = targets.clone();
+        let mut queue: VecDeque<(NodeIndex, NodeIndex, i32)> = VecDeque::new();
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
 
-        for (_, index) in &graph.indexation {
-            let number_parents = graph.graph.parents(*index).iter(&graph.graph).count();
-            parents.insert(*index, number_parents);
-
-            if number_parents == 0 {
-                queue.push_front((*index, *index, 0));
-                distances.insert(*index, (*index, 0));
-            }
+        for index in valid_nodes {
+            queue.push_back((index.clone(), index.clone(), 0));
+            visited.insert(index.clone());
         }
 
         while !queue.is_empty() {
-            let (parent_index, current_index, distance) = queue.pop_front().unwrap();
-
-            if targets.contains(&current_index) {
-                longest_paths.push((parent_index, current_index), distance);
+            let (current_index, current_parent_index, current_distance) = queue.pop_front().unwrap();
+            if targets_indices.contains(&current_index) {
+                shortest_path.push((current_parent_index, current_index), -current_distance);
             }
 
-            for (_, child_index) in graph.graph.children(current_index).iter(&graph.graph) {
-                let pets = parents[&child_index];
-                parents.insert(child_index, pets - 1);
-
-                let dis = distances.get(&child_index);
-                match dis {
-                    Some((_, d)) => {
-                        if *d < distance + 1 {
-                            distances.insert(child_index, (parent_index, distance + 1));
-                        }
-                    }
-                    None => {
-                        distances.insert(child_index, (parent_index, distance + 1));
-                    }
-                }
-
-                if parents[&child_index] == 0 {
-                    let (i, d) = distances[&child_index];
-                    queue.push_back((i, child_index, d));
+            for (_, child) in graph.graph.children(current_index).iter(&graph.graph) {
+                if visited.insert(child) {
+                    queue.push_back((child, current_parent_index, current_distance + 1));
                 }
             }
         }
-        return longest_paths;
+
+        shortest_path
     }
 
     fn extract_path<E>(
