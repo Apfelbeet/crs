@@ -61,18 +61,15 @@ pub struct Args {
 fn main() {
     let args = Args::parse();
 
-    let sources: Vec<String> = args.source.split(",").map(|s| s.to_string()).collect();
-    let targets: Vec<String> = args.target.split(",").map(|s| s.to_string()).collect();
+    let sources: Vec<String> = args.source.split(',').map(|s| s.to_string()).collect();
+    let targets: Vec<String> = args.target.split(',').map(|s| s.to_string()).collect();
 
     let log_location = args
         .log
         .as_ref()
         .map(|b_dir| log::write_header(b_dir, &args, &sources, &targets));
 
-    let worktree_location = match args.worktree_location {
-        Some(path) => Some(path.display().to_string()),
-        None => None,
-    };
+    let worktree_location = args.worktree_location.map(|path| path.display().to_string());
 
     let options = Options {
         worktree_location,
@@ -84,7 +81,7 @@ fn main() {
     let test_path = &args.test.display().to_string();
 
     eprintln!("Processing commit graph ...");
-    let g = Git::commit_graph(repo_path, sources.clone(), targets).unwrap();
+    let g = Git::commit_graph(repo_path, sources, targets).unwrap();
     // TODO: There has to be a nicer way.
     eprintln!("Starting search ...");
     match args.search_mode.as_str() {

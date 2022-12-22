@@ -1,10 +1,10 @@
 use crate::dvcs::{run_script_async, Worktree, DVCS};
-use crate::regression::TestResult;
 use crate::log::output_path;
+use crate::regression::TestResult;
 use std::marker::PhantomData;
 use std::sync::mpsc;
-use std::{thread, fmt};
 use std::time::{Duration, Instant};
+use std::{fmt, thread};
 
 #[derive(Debug, Clone)]
 pub enum ProcessError {
@@ -50,7 +50,7 @@ pub struct LocalProcess<S> {
 impl<S: DVCS> LocalProcess<S> {
     pub fn new(id: u32, repository: &str, external_location: Option<String>) -> Self {
         let worktree = S::create_worktree(repository, &format!("crs_{}", id), external_location)
-            .expect(format!("Couldn't create worktree for {}!", id).as_str());
+            .unwrap_or_else(|_| panic!("Couldn't create worktree for {}!", id));
 
         LocalProcess {
             id,
@@ -71,7 +71,7 @@ impl<S: DVCS> LocalProcess<S> {
         let id = self.id;
         let worktree = self.worktree.clone();
         let (interrupt_transmitter, interrupt_receiver) = mpsc::channel();
-        self.interrupt_transmitter = Some(interrupt_transmitter.clone());
+        self.interrupt_transmitter = Some(interrupt_transmitter);
         let log_stdout = log_directory.map(|p| output_path(p).join(format!("{}_stdout", commit)));
         let log_stderr = log_directory.map(|p| output_path(p).join(format!("{}_stderr", commit)));
 
@@ -115,14 +115,14 @@ impl<S: DVCS> LocalProcess<S> {
 
             let after_setup_time = Instant::now();
 
-
-            let mut child = match run_script_async(&worktree.location, &script_path, log_stdout, log_stderr) {
-                Ok(child) => child,
-                Err(err) => {
-                    scerror(&trans, id, commit, err.to_string());
-                    return;
-                }
-            };
+            let mut child =
+                match run_script_async(&worktree.location, &script_path, log_stdout, log_stderr) {
+                    Ok(child) => child,
+                    Err(err) => {
+                        scerror(&trans, id, commit, err.to_string());
+                        return;
+                    }
+                };
 
             loop {
                 let response = child.try_wait();
@@ -163,16 +163,13 @@ impl<S: DVCS> LocalProcess<S> {
                 let query_duration = after_query_time.checked_duration_since(after_setup_time);
                 let overall_duration = after_query_time.checked_duration_since(setup_time);
 
-                if checkout_duration.is_none()
-                    || query_duration.is_none()
-                    || overall_duration.is_none()
+                if let (Some(od), Some(cd), Some(qd)) =
+                    (checkout_duration, query_duration, overall_duration)
                 {
-                    error(&trans, id, commit.clone(), ProcessError::TimeError);
-                } else {
                     let execution_time = ExecutionData {
-                        all: overall_duration.unwrap(),
-                        setup: checkout_duration.unwrap(),
-                        query: query_duration.unwrap(),
+                        all: od,
+                        setup: cd,
+                        query: qd,
                     };
                     trans
                         .send(ProcessResponse {
@@ -181,7 +178,9 @@ impl<S: DVCS> LocalProcess<S> {
                             result: Ok((result, execution_time)),
                         })
                         .expect("transmitter broken!");
-                };
+                } else {
+                    error(&trans, id, commit.clone(), ProcessError::TimeError);
+                }
                 break;
             }
         });
@@ -218,7 +217,7 @@ fn error(
     transmitter
         .send(ProcessResponse {
             pid: id,
-            commit: commit.to_string(),
+            commit,
             result: Err(message),
         })
         .expect("transmitter broken!");

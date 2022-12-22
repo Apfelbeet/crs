@@ -73,8 +73,8 @@ impl PathSelection for LongestPath {
         let mut visited: HashSet<NodeIndex> = HashSet::new();
 
         for index in valid_nodes {
-            queue.push_back((index.clone(), index.clone(), 0));
-            visited.insert(index.clone());
+            queue.push_back((*index, *index, 0));
+            visited.insert(*index);
         }
 
         while !queue.is_empty() {
@@ -155,13 +155,13 @@ impl PathSelection for LongestPath {
 
         let mut c = &target;
         loop {
-            path.push_front(c.clone());
+            path.push_front(*c);
             match distances.get(c) {
                 Some((p, _)) => c = p,
                 None => break,
             }
         }
 
-        return path;
+        path
     }
 }

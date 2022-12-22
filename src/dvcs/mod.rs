@@ -59,8 +59,7 @@ pub fn run_script_async(
         }
     }
 
-    let x = command.spawn();
-    x
+    command.spawn()
 }
 
 pub fn run_command_sync(location: &str, command: &mut Command) -> std::io::Result<Output> {

@@ -22,16 +22,15 @@ impl<N: Clone, E: Clone> Adag<N, E> {
 
     pub fn node_from_index(&self, index: NodeIndex) -> N {
         self.graph
-            .node_weight(index.clone())
+            .node_weight(index)
             .expect("Radag seems corrupted!")
             .clone()
     }
 
     pub fn index(&self, hash: &String) -> NodeIndex {
-        self.indexation
+        *self.indexation
             .get(hash)
-            .expect(&format!("{} is not a node in the graph!", hash))
-            .clone()
+            .unwrap_or_else(|| panic!("{} is not a node in the graph!", hash))
     }
 
     pub fn hash_from_index(&self, index: NodeIndex) -> String {
@@ -68,8 +67,8 @@ pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<
     }
 }
 
-pub fn prune_downwards(graph: &Dag<String, ()>, sources: &Vec<NodeIndex>) -> (Dag<String, ()>, HashMap<String, NodeIndex>) {
-    let mut q: Vec<NodeIndex> = sources.clone();
+pub fn prune_downwards(graph: &Dag<String, ()>, sources: &[NodeIndex]) -> (Dag<String, ()>, HashMap<String, NodeIndex>) {
+    let mut q: Vec<NodeIndex> = sources.to_owned();
     let mut marked: HashSet<NodeIndex> = HashSet::from_iter(sources.iter().cloned());
 
     while !q.is_empty() {
@@ -84,7 +83,7 @@ pub fn prune_downwards(graph: &Dag<String, ()>, sources: &Vec<NodeIndex>) -> (Da
 
     let new_graph = graph.filter_map(
         |n, s| if marked.contains(&n) { Some(s.clone()) } else { None },
-        |_, v| Some(v.clone()),
+        |_, _| Some(()),
     );
 
     let mut indexation = HashMap::<String, NodeIndex>::new();
@@ -92,5 +91,5 @@ pub fn prune_downwards(graph: &Dag<String, ()>, sources: &Vec<NodeIndex>) -> (Da
         indexation.insert(new_graph.node_weight(index).unwrap().clone(), index);
     }
 
-    return (new_graph, indexation);
+    (new_graph, indexation)
 }

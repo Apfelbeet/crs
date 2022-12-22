@@ -109,8 +109,8 @@ parents: {:?}
             );
 
             if let Some(lp) = &log_path {
-                log::write_to_file(&format!("Extended Parent Search ({}): Initial Candidates {:?}\n", counter, p), &main_log_file(&lp));
-                let path_file = log::create_file(&format!("{}_parents", counter), &lp);
+                log::write_to_file(&format!("Extended Parent Search ({}): Initial Candidates {:?}\n", counter, p), &main_log_file(lp));
+                let path_file = log::create_file(&format!("{}_parents", counter), lp);
                 let path_string = p.clone().make_contiguous().join("\n");
                 log::write_to_file(&path_string, &path_file);
             }
@@ -286,7 +286,7 @@ fn create_sub<P: PathSelection, S: PathAlgorithm, E: Clone>(graph: &Adag<RPANode
 
     if let Some(log_path) = log_path {
         log::write_to_file(&format!("Extended Path Search ({}): From {} to {}. Path Length: {}\n", counter, source_hash, target_hash, path_len), &main_log_file(log_path));
-        let path_file = log::create_file(&format!("{}_path", counter), &log_path);
+        let path_file = log::create_file(&format!("{}_path", counter), log_path);
         let path_string = hash_path.clone().make_contiguous().join("\n");
         log::write_to_file(&path_string, &path_file);
     }

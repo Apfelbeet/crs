@@ -19,10 +19,9 @@ pub struct TemporalLogData {
     len: u32,
 }
 
-pub fn write_header(directory: &std::path::PathBuf, args: &Args, sources: &Vec<String>, targets: &Vec<String>) -> std::path::PathBuf {
+pub fn write_header(directory: &std::path::Path, args: &Args, sources: &Vec<String>, targets: &Vec<String>) -> std::path::PathBuf {
     let date = Utc::now();
     let directory_name = date.format("%Y%m%d_%H%M%S").to_string();
-    let mut path = directory.clone();
 
     let header = format!(
         "date: {}
@@ -38,7 +37,7 @@ scheduling: {},
 start: {:?},
 targets: {:?},
 ",
-        date.format("%Y-%m-%d %H:%M:%S").to_string(),
+        date.format("%Y-%m-%d %H:%M:%S"),
         args.repository.display(),
         args.test.display(),
         args.worktree_location,
@@ -54,13 +53,13 @@ targets: {:?},
 
     let header2 = "pid,commit,status,all,setup,query\n";
 
-    path = path.join(directory_name);
-    fs::create_dir_all(&path).expect("Couldn't create log directory!");
-    fs::create_dir_all(output_path(&path)).expect("Couldn't create log directory!");
+    let inner_path = directory.join(directory_name);
+    fs::create_dir_all(&inner_path).expect("Couldn't create log directory!");
+    fs::create_dir_all(output_path(&inner_path)).expect("Couldn't create log directory!");
 
-    fs::write(&summary_path(&path), &header).expect("Couldn't create benchmark file!");
-    fs::write(&query_path(&path), &header2).expect("Couldn't create benchmark file!");
-    path
+    fs::write(summary_path(&inner_path), header).expect("Couldn't create benchmark file!");
+    fs::write(query_path(&inner_path), header2).expect("Couldn't create benchmark file!");
+    inner_path
 }
 
 pub fn empty() -> TemporalLogData {
@@ -74,12 +73,12 @@ pub fn empty() -> TemporalLogData {
 
 pub fn add_result(
     result: &ProcessResponse,
-    path: &std::path::PathBuf,
+    path: &std::path::Path,
     log_data: &mut TemporalLogData,
 ) {
     let mut file = OpenOptions::new()
         .append(true)
-        .open(query_path(&path))
+        .open(query_path(path))
         .unwrap();
 
     match &result.result {
@@ -110,12 +109,12 @@ pub fn add_result(
 pub fn write_summary(
     overall_duration: &Duration,
     regression_points: &Vec<RegressionPoint>,
-    path: &std::path::PathBuf,
+    path: &std::path::Path,
     log_data: &mut TemporalLogData,
 ) {
     let mut file = OpenOptions::new()
         .append(true)
-        .open(query_path(&path))
+        .open(query_path(path))
         .unwrap();
 
     writeln!(&mut file, "---").unwrap();
@@ -149,27 +148,27 @@ pub fn write_summary(
     .unwrap();
 }
 
-fn summary_path(path: &std::path::PathBuf) -> std::path::PathBuf {
+fn summary_path(path: &std::path::Path) -> std::path::PathBuf {
     path.join("arguments")
 }
 
-fn query_path(path: &std::path::PathBuf) -> std::path::PathBuf {
+fn query_path(path: &std::path::Path) -> std::path::PathBuf {
     path.join("queries")
 }
 
-pub fn output_path(path: &std::path::PathBuf) -> std::path::PathBuf {
+pub fn output_path(path: &std::path::Path) -> std::path::PathBuf {
     path.join("output")
 }
 
-pub fn add_dir(name: &str, path: &std::path::PathBuf) -> std::path::PathBuf {
+pub fn add_dir(name: &str, path: &std::path::Path) -> std::path::PathBuf {
     let new_path = path.join(name);
     create_dir_all(&new_path).expect("couldn't create log directory");
     new_path
 }
 
-pub fn create_file(name: &str, path: &std::path::PathBuf) -> std::path::PathBuf {
+pub fn create_file(name: &str, path: &std::path::Path) -> std::path::PathBuf {
     let new_path = path.join(name);
-    fs::File::create(&new_path).expect(&format!("Creating {:?} failed", &new_path));
+    fs::File::create(&new_path).unwrap_or_else(|_| panic!("Creating {:?} failed", &new_path));
     new_path
 }
 
@@ -179,5 +178,5 @@ pub fn write_to_file(text: &str, path: &std::path::PathBuf) {
     .open(path)
     .unwrap();
     
-    file.write_all(text.as_bytes()).expect(&format!("Couldn't write to {:?}", path));
+    file.write_all(text.as_bytes()).unwrap_or_else(|_| panic!("Couldn't write to {:?}", path));
 }

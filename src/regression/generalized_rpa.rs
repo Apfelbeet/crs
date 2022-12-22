@@ -44,7 +44,7 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::f
                 .targets
                 .iter()
                 .filter_map(|hash| input_graph.indexation.get(hash))
-                .map(|reference| reference.clone()),
+                .copied(),
         );
 
         let sources_index = HashSet::from_iter(
@@ -52,7 +52,7 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone + std::f
                 .sources
                 .iter()
                 .filter_map(|hash| input_graph.indexation.get(hash))
-                .map(|reference| reference.clone()),
+                .copied(),
         );
 
         let annotated = annotate_graph(input_graph);
@@ -233,21 +233,26 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> Regress
                 .map(|index| {
                     self.commits
                         .graph
-                        .node_weight(index.clone())
+                        .node_weight(*index)
                         .unwrap()
                         .hash
                         .to_string()
                 })
                 .collect::<VecDeque<String>>();
 
-
             let len = path.len();
             let source_hash = &self.commits.graph.node_weight(start).unwrap().hash;
             let target_hash = &self.commits.graph.node_weight(end).unwrap().hash;
 
             if let Some(log_path) = &self.log_path {
-                log::write_to_file(&format!("Path Search ({}): From {} to {}. Path Length: {}\n", self.counter, source_hash, target_hash, len), &main_log_file(log_path));
-                let path_file = log::create_file(&format!("{}_path", self.counter), &log_path);
+                log::write_to_file(
+                    &format!(
+                        "Path Search ({}): From {} to {}. Path Length: {}\n",
+                        self.counter, source_hash, target_hash, len
+                    ),
+                    &main_log_file(log_path),
+                );
+                let path_file = log::create_file(&format!("{}_path", self.counter), log_path);
                 let path_string = path.clone().make_contiguous().join("\n");
                 log::write_to_file(&path_string, &path_file);
             }
@@ -328,11 +333,11 @@ impl<P: PathSelection, S: PathAlgorithm + RegressionAlgorithm, E: Clone> RPA<P, 
     fn node_from_index_unchecked(&mut self, index: &NodeIndex) -> &RPANode {
         self.commits
             .graph
-            .node_weight(index.clone())
+            .node_weight(*index)
             .expect("node_from_index_unchecked() failed!")
     }
 }
 
-pub fn main_log_file(path: &std::path::PathBuf) -> std::path::PathBuf {
+pub fn main_log_file(path: &std::path::Path) -> std::path::PathBuf {
     path.join("summary")
 }

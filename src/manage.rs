@@ -143,7 +143,7 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
     //Wait for active processes to be done and clean up.
     eprintln!("Wait for active processes to finish!");
     if options.do_interrupt {
-        for (_, process) in &mut pool.active_processes {
+        for process in pool.active_processes.values_mut() {
             process.interrupt();
         }
     }
@@ -193,7 +193,7 @@ fn process_response<'a, S: RegressionAlgorithm, T: DVCS>(
     log_data: &mut TemporalLogData,
 ) -> bool {
     if let Some(path) = options.log_location.clone() {
-        log::add_result(&response, &path, log_data);
+        log::add_result(response, &path, log_data);
     }
 
     match response.result.clone() {
@@ -232,7 +232,7 @@ fn process_response<'a, S: RegressionAlgorithm, T: DVCS>(
         }
     }
 
-    return true;
+    true
 }
 
 fn load_process<'a, T: DVCS>(
@@ -280,7 +280,7 @@ fn deactivate_process<T: DVCS>(id: u32, commit: &str, pool: &mut ProcessPool<T>)
     let process = pool
         .active_processes
         .remove(&id)
-        .expect(format!("Couldn't find process {} in pool of active processes!", id).as_str());
+        .unwrap_or_else(|| panic!("Couldn't find process {} in pool of active processes!", id));
     pool.commit_to_process.remove(commit);
     pool.interrupted_processes.remove(&id);
     pool.idle_processes.push(process);
@@ -290,7 +290,7 @@ fn interrupt<T: DVCS>(commit: &str, pool: &mut ProcessPool<T>) {
     let id_ = pool.commit_to_process.get(commit);
     if let Some(id) = id_ {
         pool.interrupted_processes.insert(*id);
-        let process_ = pool.active_processes.get_mut(&id);
+        let process_ = pool.active_processes.get_mut(id);
         if let Some(process) = process_ {
             process.interrupt();
         }

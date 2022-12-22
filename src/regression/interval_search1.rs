@@ -66,7 +66,7 @@ impl IntervalSearch {
             if step.job_await.remove(&commit) {
                 if result == TestResult::True {
                     for (i, h) in step.jobs.iter().enumerate() {
-                        if h.to_string() == commit {
+                        if *h == commit {
                             step.valid_nodes.push(commit.clone(), i + 1);
                             break;
                         }
@@ -89,7 +89,7 @@ impl IntervalSearch {
                 let mut regression = None;
 
                 let mut incomplete = false;
-                for hash in self.step.as_ref().unwrap().jobs.range(i.clone()..jobs_len) {
+                for hash in self.step.as_ref().unwrap().jobs.range(*i..jobs_len) {
                     match self.results.get(hash) {
                         Some(res) => {
                             if res == &TestResult::False {
@@ -130,9 +130,9 @@ impl IntervalSearch {
                 .expect("couldn't take samples!");
 
             let step = Step {
-                job_queue: VecDeque::from(jobs.clone()),
+                job_queue: jobs.clone(),
                 job_await: HashSet::new(),
-                jobs: jobs,
+                jobs,
                 valid_nodes: DoublePriorityQueue::new(),
             };
 
@@ -144,7 +144,7 @@ impl IntervalSearch {
         match step_mut.job_queue.pop_back() {
             Some(job) => {
                 step_mut.job_await.insert(job.clone());
-                super::AlgorithmResponse::Job(job.clone())
+                super::AlgorithmResponse::Job(job)
             }
             None => {
                 if step_mut.job_await.is_empty() {
@@ -188,14 +188,9 @@ impl IntervalSearch {
     }
 
     fn clean_path(&mut self) {
-        self.path = self
-            .path
-            .iter()
-            .filter(|hash| match self.results.get(hash.clone()) {
+        self.path.retain(|hash| match self.results.get(hash) {
                 Some(res) => res != &TestResult::Ignore,
                 None => true,
-            })
-            .cloned()
-            .collect();
+            });
     }
 }

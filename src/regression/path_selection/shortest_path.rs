@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque, hash_map::Entry::Vacant};
 
 use daggy::{NodeIndex, Walker};
 use priority_queue::PriorityQueue;
@@ -21,12 +21,13 @@ impl PathSelection for ShortestPath {
         let mut visited: HashSet<NodeIndex> = HashSet::new();
 
         for index in valid_nodes {
-            queue.push_back((index.clone(), index.clone(), 0));
-            visited.insert(index.clone());
+            queue.push_back((*index, *index, 0));
+            visited.insert(*index);
         }
 
         while !queue.is_empty() {
-            let (current_index, current_parent_index, current_distance) = queue.pop_front().unwrap();
+            let (current_index, current_parent_index, current_distance) =
+                queue.pop_front().unwrap();
             if targets_indices.contains(&current_index) {
                 shortest_path.push((current_parent_index, current_index), -current_distance);
             }
@@ -55,8 +56,9 @@ impl PathSelection for ShortestPath {
             let current = queue.pop_front().unwrap();
 
             for (_, child) in graph.graph.children(current).iter(&graph.graph) {
-                if !parent.contains_key(&child) {
-                    parent.insert(child, current);
+                //Goes into that branch if the entry does not exist.
+                if let Vacant(e) = parent.entry(child) {
+                    e.insert(current);
                     queue.push_back(child);
 
                     if child == target {
@@ -74,6 +76,6 @@ impl PathSelection for ShortestPath {
             c = parent.get(&c.unwrap()).cloned();
         }
 
-        return path;
+        path
     }
 }

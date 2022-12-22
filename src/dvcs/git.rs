@@ -1,6 +1,7 @@
 use crate::dvcs::DVCS;
 use crate::graph::{prune_downwards, Adag};
 use daggy::{Dag, NodeIndex};
+use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::process::{Command, Output};
@@ -20,19 +21,23 @@ impl DVCS for Git {
         let mut graph = Dag::<String, ()>::new();
         let mut indexation = HashMap::<String, NodeIndex>::new();
 
-        let lca = if sources.len() > 1 {
-            let mut lca_command = Command::new("git");
-            lca_command
-                .arg("merge-base")
-                .arg("--octopus")
-                .args(&sources);
-
-            handle_result(run_command_sync(repository, &mut lca_command))
-        } else if sources.len() == 1 {
-            Ok(sources[0].clone())
-        } else {
-            print_error("Missing source!");
-            Err(())
+        let lca = match sources.len().cmp(&1) {
+            Ordering::Greater => {
+                let mut lca_command = Command::new("git");
+                lca_command
+                    .arg("merge-base")
+                    .arg("--octopus")
+                    .args(&sources);
+    
+                handle_result(run_command_sync(repository, &mut lca_command))
+            },
+            Ordering::Equal => {
+                Ok(sources[0].clone())
+            },
+            Ordering::Less => {
+                print_error("Missing source!");
+                Err(())
+            }
         };
 
         let mut rev_command = Command::new("git");
@@ -48,7 +53,7 @@ impl DVCS for Git {
         let source_indices = sources
             .iter()
             .filter_map(|h| indexation.get(h).cloned())
-            .collect();
+            .collect::<Vec<_>>();
         let (pruned_graph, pruned_indexation) = prune_downwards(&graph, &source_indices);
         let remaining_sources = sources
             .iter()
@@ -61,12 +66,12 @@ impl DVCS for Git {
             .cloned()
             .collect();
 
-        return Ok(Adag {
+        Ok(Adag {
             graph: pruned_graph,
             indexation: pruned_indexation,
             sources: remaining_sources,
             targets: remaining_targets,
-        });
+        })
     }
 
     fn create_worktree(
@@ -81,7 +86,7 @@ impl DVCS for Git {
                 let hash = s.finish().to_string();
                 format!("{}_{}", hash, name)
             }
-            None => format!("{}", name),
+            None => name.to_string(),
         };
 
         let location = match &external_location {
@@ -228,7 +233,7 @@ fn worktree_exists(location: &str, name: &str) -> bool {
         Ok(output) => {
             if output.status.success() {
                 let response = String::from_utf8(output.stdout).unwrap();
-                response.find(name).is_some()
+                response.contains(name)
             } else {
                 panic!("{}", String::from_utf8(output.stderr).unwrap().as_str());
             }
@@ -251,7 +256,7 @@ fn add_rev_list(
     let lines = rev_list.lines();
 
     for line in lines {
-        let mut hashes = line.split(" ");
+        let mut hashes = line.split(' ');
         let op_h1 = hashes.next();
         let op_h2 = hashes.next();
 
