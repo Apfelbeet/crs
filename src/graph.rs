@@ -1,4 +1,4 @@
-use daggy::{Dag, NodeIndex, Walker, petgraph::visit::IntoNodeIdentifiers};
+use daggy::{petgraph::visit::IntoNodeIdentifiers, Dag, NodeIndex, Walker};
 use std::{
     cmp::{max, min},
     collections::{HashMap, HashSet, VecDeque},
@@ -28,7 +28,8 @@ impl<N: Clone, E: Clone> Adag<N, E> {
     }
 
     pub fn index(&self, hash: &String) -> NodeIndex {
-        *self.indexation
+        *self
+            .indexation
             .get(hash)
             .unwrap_or_else(|| panic!("{} is not a node in the graph!", hash))
     }
@@ -67,7 +68,10 @@ pub fn length_of_path<S: Eq>(path: &VecDeque<S>, left: &S, right: &S) -> Result<
     }
 }
 
-pub fn prune_downwards(graph: &Dag<String, ()>, sources: &[NodeIndex]) -> (Dag<String, ()>, HashMap<String, NodeIndex>) {
+pub fn prune_downwards(
+    graph: &Dag<String, ()>,
+    sources: &[NodeIndex],
+) -> (Dag<String, ()>, HashMap<String, NodeIndex>) {
     let mut q: Vec<NodeIndex> = sources.to_owned();
     let mut marked: HashSet<NodeIndex> = HashSet::from_iter(sources.iter().cloned());
 
@@ -82,7 +86,13 @@ pub fn prune_downwards(graph: &Dag<String, ()>, sources: &[NodeIndex]) -> (Dag<S
     }
 
     let new_graph = graph.filter_map(
-        |n, s| if marked.contains(&n) { Some(s.clone()) } else { None },
+        |n, s| {
+            if marked.contains(&n) {
+                Some(s.clone())
+            } else {
+                None
+            }
+        },
         |_, _| Some(()),
     );
 
@@ -92,4 +102,174 @@ pub fn prune_downwards(graph: &Dag<String, ()>, sources: &[NodeIndex]) -> (Dag<S
     }
 
     (new_graph, indexation)
+}
+
+pub fn associated_value_bisection(
+    graph: &Adag<String, ()>,
+    sources: &HashSet<NodeIndex>,
+    ignored: &HashSet<NodeIndex>,
+    target: NodeIndex,
+) -> Option<NodeIndex> {
+    // find all nodes reachable from the target
+    let mut relevant_sources = HashSet::<NodeIndex>::new();
+    let mut relevant = HashSet::<NodeIndex>::new();
+    let mut queue = VecDeque::<NodeIndex>::new();
+    let mut irrelevant_queue = VecDeque::<NodeIndex>::new();
+    let mut irrelevant = HashSet::<NodeIndex>::new();
+    queue.push_back(target);
+    relevant.insert(target);
+
+    while let Some(current_index) = queue.pop_front() {
+        if sources.contains(&current_index) {
+            relevant_sources.insert(current_index);
+            if irrelevant.insert(current_index) {
+                irrelevant_queue.push_back(current_index);
+            }
+            continue;
+        }
+
+        for (_, parent_index) in graph.graph.parents(current_index).iter(&graph.graph) {
+            if relevant.insert(parent_index) {
+                queue.push_back(parent_index);
+            }
+        }
+    }
+    drop(queue);
+
+    while let Some(current_index) = irrelevant_queue.pop_front() {
+        for (_, parent_index) in graph.graph.parents(current_index).iter(&graph.graph) {
+            if irrelevant.insert(parent_index) {
+                irrelevant_queue.push_back(parent_index);
+            }
+        }
+    }
+
+    //starting from the relevant sources, we're now calculating the number of parents for all nodes
+    let mut number_of_parents = HashMap::<NodeIndex, usize>::new();
+    let mut queue = VecDeque::<NodeIndex>::new();
+    let mut size = 0;
+
+    for source in &relevant_sources {
+        queue.push_back(*source);
+        number_of_parents.insert(*source, 0);
+    }
+
+    while let Some(current_index) = queue.pop_front() {
+        if current_index == target {
+            continue;
+        }
+
+        for (_, child_index) in graph.graph.children(current_index).iter(&graph.graph) {
+            if !irrelevant.contains(&child_index) && relevant.contains(&child_index) {
+                match number_of_parents.get_mut(&child_index) {
+                    Some(np) => {
+                        *np += 1;
+                    }
+                    None => {
+                        number_of_parents.insert(child_index, 1);
+                        queue.push_back(child_index);
+                        size += 1;
+                    }
+                };
+            }
+        }
+    }
+    drop(queue);
+
+    if size <= 1 {
+        return None;
+    }
+    //calculating the number of ancestors, by performing a topological sort
+    //we keep track of simple and disjunct sets of nodes in the graph.
+    //For each of such a section we store the size of it in an hashmap
+    //The number of ancestors for a node, is the size of all sets that have ancestors of that node
+    //  + the number of ancestors in the set of the active nodes.
+    let mut section_sizes = HashMap::<NodeIndex, usize>::new();
+    let mut sections_of_nodes = HashMap::<NodeIndex, (HashSet<NodeIndex>, usize)>::new();
+    let mut number_of_ancestors = HashMap::<NodeIndex, usize>::new();
+    let mut queue = VecDeque::<NodeIndex>::new();
+
+    for source in &relevant_sources {
+        queue.push_back(*source);
+        sections_of_nodes.insert(*source, (HashSet::new(), 1));
+    }
+
+    while let Some(current_index) = queue.pop_front() {
+        let mut anc = 0;
+        let (sections, offset) = sections_of_nodes
+            .remove(&current_index)
+            .unwrap_or((HashSet::new(), 1));
+
+        anc += offset;
+        anc += sections
+            .iter()
+            .filter_map(|section| section_sizes.get(section))
+            .sum::<usize>();
+        number_of_ancestors.insert(current_index, anc - 1);
+
+        if current_index == target {
+            break;
+        }
+
+        if anc > size / 2 {
+            continue;
+        }
+
+        let children: Vec<NodeIndex> = graph
+            .graph
+            .children(current_index)
+            .iter(&graph.graph)
+            .map(|(_, n)| n)
+            .filter(|n| relevant.contains(n) && !irrelevant.contains(n))
+            .collect();
+
+        match children.len().cmp(&1) {
+            std::cmp::Ordering::Less => {}
+            std::cmp::Ordering::Equal => {
+                let child_index = children[0];
+                match sections_of_nodes.get_mut(&child_index) {
+                    Some((child_section, child_offset)) => {
+                        *child_offset += offset;
+                        child_section.extend(sections.into_iter());
+                    }
+                    None => {
+                        sections_of_nodes.insert(child_index, (sections, offset + 1));
+                    }
+                }
+            }
+            std::cmp::Ordering::Greater => {
+                section_sizes.insert(current_index, offset);
+                let mut new_sections = sections.clone();
+                new_sections.insert(current_index);
+                for child_index in &children {
+                    match sections_of_nodes.get_mut(child_index) {
+                        Some((child_section, _)) => {
+                            child_section.extend(new_sections.iter());
+                        }
+                        None => {
+                            sections_of_nodes.insert(*child_index, (new_sections.clone(), 1));
+                        }
+                    }
+                }
+            }
+        };
+
+        for child_index in children {
+            if let Some(parents) = number_of_parents.get_mut(&child_index) {
+                *parents -= 1;
+                if *parents == 0 {
+                    queue.push_back(child_index);
+                }
+            }
+        }
+    }
+
+    let (bisection_point, _associated_value) = number_of_ancestors
+        .into_iter()
+        .filter(|(n, _)| !ignored.contains(n))
+        .map(|(n, v)| (n, min(v, size - v)))
+        .max_by(|(_, v1), (_, v2)| v1.cmp(v2))
+        .unwrap();
+
+    Some(bisection_point)
 }

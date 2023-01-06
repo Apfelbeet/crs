@@ -16,7 +16,7 @@ use regression::{
     rpa_util::Settings,
 };
 
-use crate::manage::start;
+use crate::{manage::start, regression::git_bisect::GitBisect};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -150,6 +150,10 @@ fn main() {
                 log_location
             );
             start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
+        }
+        "bisect" => {
+            let mut bisect = GitBisect::new(g, args.processes as usize, log_location);
+            start::<_, Git>(&mut bisect, repo_path, args.processes, test_path, options)
         }
         &_ => {
             panic!("Invalid search mode! Pick (exrpa-long-bin, exrpa-long-lin, exrpa-long-mul, exrpa-short-bin, exrpa-short-lin, exrpa-short-mul)");

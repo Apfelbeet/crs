@@ -10,6 +10,8 @@ pub mod rpa_search {
     pub use super::generalized_rpa::*;
 }
 
+pub mod git_bisect;
+
 pub mod binary_search;
 pub mod linear_search;
 pub mod multiplying_search;
