@@ -10,7 +10,7 @@ pub struct GitBisect {
     graph: Adag<String, ()>,
     valid_nodes: HashSet<NodeIndex>,
     ignored_nodes: HashSet<NodeIndex>,
-    results: HashMap<String, TestResult>,
+    results: HashMap<NodeIndex, TestResult>,
     target: String,
     current_target: NodeIndex,
     bisection_depth: usize,
@@ -18,10 +18,12 @@ pub struct GitBisect {
     step: Option<Step>,
 }
 
+type JobTree = HashMap<NodeIndex, (Option<NodeIndex>, Option<NodeIndex>)>;
+
 struct Step {
     pub job_queue: VecDeque<String>,
     pub job_await: HashSet<String>,
-    pub jobs: VecDeque<String>,
+    pub job_tree: (JobTree, NodeIndex),
 }
 
 impl GitBisect {
@@ -43,6 +45,14 @@ impl GitBisect {
         let bisection_depth = ((capacity + 1) as f64).log2() as usize;
         let ignored_nodes = HashSet::new();
         let step = next_step(&graph, &sources_index, &ignored_nodes, target_index, bisection_depth);
+
+        eprintln!(
+            "----
+Bisect initialized
+{} Commits
+----",
+            graph.graph.node_count()
+        );
 
         GitBisect {
             graph,
@@ -66,7 +76,8 @@ fn next_step(
     depth: usize,
 ) -> Option<Step> {
     let mut points = VecDeque::<NodeIndex>::new();
-    next_point(graph, valid_nodes.clone(), ignored_nodes, target, depth, &mut points);
+    let mut tree = HashMap::new();
+    let root = next_point(graph, valid_nodes.clone(), ignored_nodes, target, depth, &mut points, &mut tree);
 
     if points.is_empty() {
         None
@@ -78,8 +89,9 @@ fn next_step(
 
         Some(Step {
             job_await: HashSet::new(),
-            job_queue: hashes.clone(),
-            jobs: hashes,
+            job_queue: hashes,
+            job_tree: (tree, root.unwrap()),
+
         })
     }
 }
@@ -91,46 +103,61 @@ fn next_point(
     target: NodeIndex,
     depth: usize,
     points: &mut VecDeque<NodeIndex>,
-) {
+    tree: &mut JobTree,
+) -> Option<NodeIndex> {
     let bisection_point = associated_value_bisection(graph, &valid_nodes, ignored_nodes, target);
     if let Some(point) = bisection_point {
         let mut ex_valid = valid_nodes.clone();
         ex_valid.insert(point);
 
-        if depth > 1 {
-            next_point(graph, valid_nodes, ignored_nodes, point, depth - 1, points);
-        }
+        let left = if depth > 1 {
+            next_point(graph, valid_nodes, ignored_nodes, point, depth - 1, points, tree)
+        } else {
+            None
+        };
 
         points.push_back(point);
 
-        if depth > 1 {
-            next_point(graph, ex_valid, ignored_nodes, target, depth - 1, points);
-        }
+        let right = if depth > 1 {
+            next_point(graph, ex_valid, ignored_nodes, target, depth - 1, points, tree)
+        } else {
+            None
+        };
+
+        tree.insert(point, (left, right));
     }
+    bisection_point
 }
 
 impl RegressionAlgorithm for GitBisect {
     fn add_result(&mut self, commit: String, result: super::TestResult) {
-        self.results.insert(commit.clone(), result.clone());
-        match result {
-            super::TestResult::True => {
-                self.valid_nodes.insert(self.graph.index(&commit));
-            }
-            super::TestResult::False => {}
-            super::TestResult::Ignore => {
-                self.ignored_nodes.insert(self.graph.index(&commit));
-            },
-        }
+        self.results.insert(self.graph.index(&commit), result);
 
         if let Some(step) = self.step.as_mut() {
             step.job_await.remove(&commit);
 
             if step.job_await.is_empty() && step.job_queue.is_empty() {
-                for job in step.jobs.iter().rev() {
-                    match self.results[job] {
-                        TestResult::True => break,
-                        TestResult::False => self.current_target = self.graph.index(job),
-                        TestResult::Ignore => panic!("Bisect: Untestable is unsupported!"),
+                let mut current_node = Some(step.job_tree.1);
+                while let Some(node_pointer) = current_node {
+                    match self.results[&node_pointer] {
+                        TestResult::True => {
+                            self.valid_nodes.insert(node_pointer);
+                            if let Some((_, r)) = step.job_tree.0.get(&node_pointer) {
+                                current_node = *r;
+                            }
+                        },
+                        TestResult::False => {
+                            self.current_target = node_pointer;
+                            if let Some((l, _)) = step.job_tree.0.get(&node_pointer) {
+                                current_node = *l;
+                            }
+                        },
+                        TestResult::Ignore => {
+                            self.ignored_nodes.insert(node_pointer);
+                            if let Some((l, _)) = step.job_tree.0.get(&node_pointer) {
+                                current_node = *l;
+                            }
+                        },
                     }
                 }
                 self.step = next_step(&self.graph, &self.valid_nodes, &self.ignored_nodes, self.current_target, self.bisection_depth);

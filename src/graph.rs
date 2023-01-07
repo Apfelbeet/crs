@@ -111,7 +111,7 @@ pub fn associated_value_bisection(
     target: NodeIndex,
 ) -> Option<NodeIndex> {
     // find all nodes reachable from the target
-    let mut relevant_sources = HashSet::<NodeIndex>::new();
+    // let mut relevant_sources = HashSet::<NodeIndex>::new();
     let mut relevant = HashSet::<NodeIndex>::new();
     let mut queue = VecDeque::<NodeIndex>::new();
     let mut irrelevant_queue = VecDeque::<NodeIndex>::new();
@@ -121,7 +121,6 @@ pub fn associated_value_bisection(
 
     while let Some(current_index) = queue.pop_front() {
         if sources.contains(&current_index) {
-            relevant_sources.insert(current_index);
             if irrelevant.insert(current_index) {
                 irrelevant_queue.push_back(current_index);
             }
@@ -143,13 +142,44 @@ pub fn associated_value_bisection(
             }
         }
     }
+    drop(irrelevant_queue);
+
+    let mut start_points = HashSet::<NodeIndex>::new();
+    let mut visited = HashSet::<NodeIndex>::new();
+    let mut queue = VecDeque::<NodeIndex>::new();
+    queue.push_back(target);
+    visited.insert(target);
+
+    while let Some(current_index) = queue.pop_front() {
+        let parents =
+            graph
+                .graph
+                .parents(current_index)
+                .iter(&graph.graph)
+                .filter(|(_, parent_index)| {
+                    !irrelevant.contains(parent_index) && relevant.contains(parent_index)
+                }).collect::<Vec<_>>();
+
+        if parents.is_empty() {
+            start_points.insert(current_index);
+        } else {
+            for (_, parent_index) in parents {
+                if visited.insert(parent_index) {
+                    queue.push_back(parent_index);
+                }
+            }
+        }
+    }
+
+    drop(queue);
+    drop(visited);
 
     //starting from the relevant sources, we're now calculating the number of parents for all nodes
     let mut number_of_parents = HashMap::<NodeIndex, usize>::new();
     let mut queue = VecDeque::<NodeIndex>::new();
-    let mut size = 0;
+    let mut size = start_points.len();
 
-    for source in &relevant_sources {
+    for source in &start_points {
         queue.push_back(*source);
         number_of_parents.insert(*source, 0);
     }
@@ -189,7 +219,7 @@ pub fn associated_value_bisection(
     let mut number_of_ancestors = HashMap::<NodeIndex, usize>::new();
     let mut queue = VecDeque::<NodeIndex>::new();
 
-    for source in &relevant_sources {
+    for source in &start_points {
         queue.push_back(*source);
         sections_of_nodes.insert(*source, (HashSet::new(), 1));
     }
@@ -205,7 +235,7 @@ pub fn associated_value_bisection(
             .iter()
             .filter_map(|section| section_sizes.get(section))
             .sum::<usize>();
-        number_of_ancestors.insert(current_index, anc - 1);
+        number_of_ancestors.insert(current_index, anc);
 
         if current_index == target {
             break;
