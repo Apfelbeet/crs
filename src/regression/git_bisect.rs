@@ -44,7 +44,8 @@ impl GitBisect {
         let target_index = graph.index(&graph.targets[0]);
         let bisection_depth = ((capacity + 1) as f64).log2() as usize;
         let ignored_nodes = HashSet::new();
-        let step = next_step(&graph, &sources_index, &ignored_nodes, target_index, bisection_depth);
+        let results = HashMap::new();
+        let step = next_step(&graph, &sources_index, &ignored_nodes, &results, target_index, bisection_depth);
 
         eprintln!(
             "----
@@ -58,7 +59,7 @@ Bisect initialized
             graph,
             valid_nodes: sources_index,
             ignored_nodes,
-            results: HashMap::new(),
+            results,
             target,
             bisection_depth,
             current_target: target_index,
@@ -72,27 +73,37 @@ fn next_step(
     graph: &Adag<String, ()>,
     valid_nodes: &HashSet<NodeIndex>,
     ignored_nodes: &HashSet<NodeIndex>,
+    results: &HashMap<NodeIndex, TestResult>,
     target: NodeIndex,
     depth: usize,
 ) -> Option<Step> {
-    let mut points = VecDeque::<NodeIndex>::new();
-    let mut tree = HashMap::new();
-    let root = next_point(graph, valid_nodes.clone(), ignored_nodes, target, depth, &mut points, &mut tree);
+    loop {
+        let mut points = VecDeque::<NodeIndex>::new();
+        let mut tree = HashMap::new();
+        let root = next_point(graph, valid_nodes.clone(), ignored_nodes, target, depth, &mut points, &mut tree);
 
-    if points.is_empty() {
-        None
-    } else {
-        let hashes = points
-            .into_iter()
-            .map(|index| graph.node_from_index(index))
-            .collect::<VecDeque<_>>();
+        if points.is_empty() {
+            break None;
+        } else {
+            let len1 = points.len();
+            let hashes = points
+                .into_iter()
+                .filter(|index| !results.contains_key(index))
+                .map(|index| graph.node_from_index(index))
+                .collect::<VecDeque<_>>();
 
-        Some(Step {
-            job_await: HashSet::new(),
-            job_queue: hashes,
-            job_tree: (tree, root.unwrap()),
+            if hashes.len() != len1 {
+                dbg!("\n\n\nDOUBLE\n\n\n");
+            }
 
-        })
+            if !hashes.is_empty() {
+                break Some(Step {
+                    job_await: HashSet::new(),
+                    job_queue: hashes,
+                    job_tree: (tree, root.unwrap()),
+                })
+            }
+        }
     }
 }
 
@@ -160,7 +171,7 @@ impl RegressionAlgorithm for GitBisect {
                         },
                     }
                 }
-                self.step = next_step(&self.graph, &self.valid_nodes, &self.ignored_nodes, self.current_target, self.bisection_depth);
+                self.step = next_step(&self.graph, &self.valid_nodes, &self.ignored_nodes, &self.results, self.current_target, self.bisection_depth);
             }
         }
     }
