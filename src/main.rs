@@ -16,7 +16,10 @@ use regression::{
     rpa_util::Settings,
 };
 
-use crate::{manage::start, regression::git_bisect::GitBisect};
+use crate::{
+    manage::start,
+    regression::{git_bisect::GitBisect, RegressionAlgorithm},
+};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -69,7 +72,10 @@ fn main() {
         .as_ref()
         .map(|b_dir| log::write_header(b_dir, &args, &sources, &targets));
 
-    let worktree_location = args.worktree_location.map(|path| path.display().to_string());
+    let worktree_location = args
+        .worktree_location
+        .as_ref()
+        .map(|path| path.display().to_string());
 
     let options = Options {
         worktree_location,
@@ -82,81 +88,57 @@ fn main() {
 
     eprintln!("Processing commit graph ...");
     let g = Git::commit_graph(repo_path, sources, targets).unwrap();
-    // TODO: There has to be a nicer way.
+    eprintln!("Preparing core ...");
+    let mut rpa = load_core(&args, g, log_location);
     eprintln!("Starting search ...");
+
+    start::<Git>(rpa.as_mut(), repo_path, args.processes, test_path, options);
+}
+
+fn load_core(
+    args: &Args,
+    graph: graph::Adag<String, ()>,
+    log_location: Option<std::path::PathBuf>,
+) -> Box<dyn RegressionAlgorithm> {
+    let settings = Settings {
+        propagate: !args.no_propagate,
+        extended_search: !args.no_extended,
+    };
+
     match args.search_mode.as_str() {
-        "exrpa-long-bin" => {
-            let mut rpa = RPA::<LongestPath, BinarySearch, ()>::new(
-                g,
-                Settings {
-                    propagate: !args.no_propagate,
-                    extended_search: !args.no_extended,
-                },
-                log_location
-            );
-            start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
-        }
-        "exrpa-long-lin" => {
-            let mut rpa = RPA::<LongestPath, LinearSearch, ()>::new(
-                g,
-                Settings {
-                    propagate: !args.no_propagate,
-                    extended_search: !args.no_extended,
-                },
-                log_location
-            );
-            start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
-        }
-        "exrpa-long-mul" => {
-            let mut rpa = RPA::<LongestPath, MultiplyingSearch, ()>::new(
-                g,
-                Settings {
-                    propagate: !args.no_propagate,
-                    extended_search: !args.no_extended,
-                },
-                log_location
-            );
-            start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
-        }
-        "exrpa-short-bin" => {
-            let mut rpa = RPA::<ShortestPath, BinarySearch, ()>::new(
-                g,
-                Settings {
-                    propagate: !args.no_propagate,
-                    extended_search: !args.no_extended,
-                },
-                log_location
-            );
-            start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
-        }
-        "exrpa-short-lin" => {
-            let mut rpa = RPA::<ShortestPath, LinearSearch, ()>::new(
-                g,
-                Settings {
-                    propagate: !args.no_propagate,
-                    extended_search: !args.no_extended,
-                },
-                log_location
-            );
-            start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
-        }
-        "exrpa-short-mul" => {
-            let mut rpa = RPA::<ShortestPath, MultiplyingSearch, ()>::new(
-                g,
-                Settings {
-                    propagate: !args.no_propagate,
-                    extended_search: !args.no_extended,
-                },
-                log_location
-            );
-            start::<_, Git>(&mut rpa, repo_path, args.processes, test_path, options);
-        }
-        "bisect" => {
-            let mut bisect = GitBisect::new(g, args.processes as usize, log_location);
-            start::<_, Git>(&mut bisect, repo_path, args.processes, test_path, options)
-        }
+        "exrpa-long-bin" => Box::new(RPA::<LongestPath, BinarySearch, ()>::new(
+            graph,
+            settings,
+            log_location,
+        )),
+        "exrpa-long-lin" => Box::new(RPA::<LongestPath, LinearSearch, ()>::new(
+            graph,
+            settings,
+            log_location,
+        )),
+        "exrpa-long-mul" => Box::new(RPA::<LongestPath, MultiplyingSearch, ()>::new(
+            graph,
+            settings,
+            log_location,
+        )),
+        "exrpa-short-bin" => Box::new(RPA::<ShortestPath, BinarySearch, ()>::new(
+            graph,
+            settings,
+            log_location,
+        )),
+        "exrpa-short-lin" => Box::new(RPA::<ShortestPath, LinearSearch, ()>::new(
+            graph,
+            settings,
+            log_location,
+        )),
+        "exrpa-short-mul" => Box::new(RPA::<ShortestPath, MultiplyingSearch, ()>::new(
+            graph,
+            settings,
+            log_location,
+        )),
+        "bisect" => Box::new(GitBisect::new(graph, args.processes as usize, log_location)),
         &_ => {
             panic!("Invalid search mode! Pick (exrpa-long-bin, exrpa-long-lin, exrpa-long-mul, exrpa-short-bin, exrpa-short-lin, exrpa-short-mul)");
         }
-    };
+    }
 }

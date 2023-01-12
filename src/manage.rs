@@ -36,8 +36,8 @@ impl Stats {
     }
 }
 
-pub fn start<S: RegressionAlgorithm, T: DVCS>(
-    core: &mut S,
+pub fn start<T: DVCS>(
+    core: &mut dyn RegressionAlgorithm,
     repository: &str,
     threads: u32,
     script_path: &str,
@@ -184,9 +184,9 @@ pub fn start<S: RegressionAlgorithm, T: DVCS>(
     }
 }
 
-fn process_response<'a, S: RegressionAlgorithm, T: DVCS>(
+fn process_response<'a, T: DVCS>(
     response: &ProcessResponse,
-    core: &mut S,
+    core: &mut dyn RegressionAlgorithm,
     stats: &mut Stats,
     pool: &'a mut ProcessPool<T>,
     options: &Options,
