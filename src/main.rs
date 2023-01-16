@@ -136,7 +136,7 @@ fn load_core(
             settings,
             log_location,
         )),
-        "bisect" => Box::new(GitBisect::new(graph, args.processes as usize, log_location)),
+        "bisect" => Box::new(GitBisect::new(graph, log_location)),
         &_ => {
             panic!("Invalid search mode! Pick (exrpa-long-bin, exrpa-long-lin, exrpa-long-mul, exrpa-short-bin, exrpa-short-lin, exrpa-short-mul)");
         }
