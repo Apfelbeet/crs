@@ -14,48 +14,99 @@ pub struct GitBisect {
     bisection_tree: BisectionTree,
     jobs: VecDeque<NodeIndex>,
     jobs_await: HashSet<NodeIndex>,
-    target: NodeIndex,
+    original_target: NodeIndex,
     current_target: NodeIndex,
     _log_path: Option<std::path::PathBuf>,
 }
 
-type BisectionTree = Option<Box<Node>>;
+type BisectionTree = Child<Node>;
 
-fn new_bisection_tree(
+fn new_root(
     graph: &Adag<String, ()>,
-    valid_nodes: &HashSet<NodeIndex>,
-    ignored_nodes: &HashSet<NodeIndex>,
-    target: NodeIndex,
-) -> Option<Node> {
-    let root = associated_value_bisection(graph, valid_nodes, ignored_nodes, target);
-    root.map(Node::new)
+    results: &HashMap<NodeIndex, TestResult>,
+    valid_nodes: &mut HashSet<NodeIndex>,
+    ignored_nodes: &mut HashSet<NodeIndex>,
+    target: &mut NodeIndex,
+) -> Child<Node> {
+    let mut fictive_valids = valid_nodes.clone(); //fixme: bad! Might not work correctly
+
+    //Given the current results, we can calculate a new root
+    //That root might already have a result, so we have to repeat this process until
+    //we find a unevaluated root or we know that there is nothing left.
+    let root = loop {
+        let node = associated_value_bisection(graph, valid_nodes, &fictive_valids, *target);
+        match node {
+            None => break node,
+            Some(n) => match results.get(&n) {
+                Some(TestResult::True) => {
+                    valid_nodes.insert(n);
+                    fictive_valids.insert(n);
+                }
+                Some(TestResult::False) => {
+                    *target = n;
+                }
+                Some(TestResult::Ignore) => {
+                    fictive_valids.insert(n);
+                    ignored_nodes.insert(n);
+                }
+                None => break node,
+            },
+        }
+    };
+
+    root.into()
 }
 
 struct Node {
     index: NodeIndex,
-    left: Option<Box<Node>>,
-    right: Option<Box<Node>>,
+    left: Child<Node>,
+    right: Child<Node>,
+}
+enum Child<T> {
+    Next(Box<T>),
+    Unknown,
+    End,
+}
+
+impl<T> Child<T> {
+    fn unwrap(self) -> Box<T> {
+        match self {
+            Child::Next(val) => val,
+            _ => {
+                panic!("called `Child::unwrap()` on a empty value");
+            }
+        }
+    }
 }
 
 impl Node {
     fn new(index: NodeIndex) -> Self {
         Node {
             index,
-            left: None,
-            right: None,
+            left: Child::Unknown,
+            right: Child::Unknown,
         }
     }
 }
 
-impl From<Node> for Option<Box<Node>> {
+impl From<Node> for Child<Node> {
     fn from(node: Node) -> Self {
-        Some(Box::new(node))
+        Child::Next(Box::new(node))
+    }
+}
+
+impl From<Option<NodeIndex>> for Child<Node> {
+    fn from(op: Option<NodeIndex>) -> Self {
+        match op {
+            Some(index) => Node::new(index).into(),
+            None => Child::End,
+        }
     }
 }
 
 impl GitBisect {
     pub fn new(graph: Adag<String, ()>, log_path: Option<std::path::PathBuf>) -> Self {
-        let sources_index = HashSet::from_iter(
+        let mut sources_index = HashSet::from_iter(
             graph
                 .sources
                 .iter()
@@ -63,15 +114,16 @@ impl GitBisect {
                 .copied(),
         );
 
-        let target_index = graph.index(&graph.targets[0]);
-        let ignored_nodes = HashSet::new();
+        let mut target_index = graph.index(&graph.targets[0]);
+        let mut ignored_nodes = HashSet::new();
         let results = HashMap::new();
-        let mut jobs = VecDeque::new();
-        let tree = new_bisection_tree(&graph, &sources_index, &ignored_nodes, target_index);
-        let tree = tree.map(Box::new);
-        if let Some(node) = &tree {
-            jobs.push_back(node.index);
-        }
+        let tree = new_root(
+            &graph,
+            &results,
+            &mut sources_index,
+            &mut ignored_nodes,
+            &mut target_index,
+        );
 
         eprintln!(
             "----\nBisect initialized\n{} Commits\n----",
@@ -83,117 +135,155 @@ impl GitBisect {
             valid_nodes: sources_index,
             ignored_nodes,
             results,
-            target: target_index,
+            original_target: target_index,
             bisection_tree: tree,
             jobs_await: HashSet::new(),
-            jobs,
+            jobs: VecDeque::new(),
             current_target: target_index,
             _log_path: log_path,
         }
     }
-}
 
-fn estimate_new_jobs(bisection_tree: &BisectionTree, results: &HashMap<NodeIndex, TestResult>) -> usize {
-    let mut number_of_jobs = 0;
-    let mut stack = Vec::<&Box<Node>>::new();
+    fn extend_speculation_tree(&mut self) -> bool {
+        let mut changed = false;
+        match self.bisection_tree {
+            Child::End => {}
 
-    if let Some(ref root_node) = bisection_tree {
-        stack.push(root_node);
-    }
-
-    while let Some(node) = stack.pop() {
-        let result = results.get(&node.index);
-        
-        if let Some(TestResult::True) | Some(TestResult::Ignore) | None = result {
-            match &node.right {
-                Some(t) => stack.push(t),
-                None => number_of_jobs += 1,
-            };
-        }
-
-        if let Some(TestResult::False) | None = result {
-            match &node.left {
-                Some(l) => stack.push(l),
-                None => number_of_jobs += 1,
-            };
-        }
-    };
-
-    number_of_jobs
-}
-
-fn generate_new_jobs(
-    bisection_tree: &mut BisectionTree,
-    results: &HashMap<NodeIndex, TestResult>,
-    capacity: usize,
-    graph: &Adag<String, ()>,
-    target: NodeIndex,
-    valid_nodes: &HashSet<NodeIndex>,
-    ignored_nodes: &HashSet<NodeIndex>,
-) -> VecDeque<NodeIndex> {
-    
-    let number_of_jobs = estimate_new_jobs(bisection_tree, results);
-
-    if capacity < number_of_jobs {
-        return VecDeque::default();
-    }
-
-    let mut jobs = HashSet::new();
-    let mut stack = Vec::<(&mut Box<Node>, HashSet<NodeIndex>, NodeIndex)>::new();
-
-    if let Some(root_node) = bisection_tree {
-        stack.push((root_node, HashSet::new(), target));
-    }
-
-    while let Some((node, mut vs, t)) = stack.pop() {
-        let result = results.get(&node.index);
-
-        if let Some(TestResult::True) | Some(TestResult::Ignore) | None = result {
-            let mut vs2 = vs.clone();
-            if let Some(TestResult::True) | None = result {
-                vs2.insert(node.index);
+            Child::Unknown => {
+                changed = true;
+                self.bisection_tree = new_root(
+                    &self.graph,
+                    &self.results,
+                    &mut self.valid_nodes,
+                    &mut self.ignored_nodes,
+                    &mut self.current_target,
+                );
             }
 
-            match node.right {
-                Some(ref mut r) => stack.push((r, vs2, t)),
-                ref mut right @ None => {
-                    vs2.extend(valid_nodes.iter());
-                    let bisect = associated_value_bisection(graph, &vs2, ignored_nodes, t);
+            Child::Next(ref mut root) => {
+                let mut q =
+                    VecDeque::<(&mut Box<Node>, usize, HashSet<NodeIndex>, NodeIndex)>::new();
+                let mut limit = None;
+                q.push_back((root, 0, HashSet::new(), self.current_target));
 
-                    if let Some(bisect_point) = bisect {
-                        jobs.insert(bisect_point);
-                        *right = Node::new(bisect_point).into();
+                while let Some((node, depth, mut vs, t)) = q.pop_front() {
+                    if let Some(lim) = limit {
+                        if lim < depth {
+                            break;
+                        }
+                    }
+
+                    let result = self.results.get(&node.index);
+
+                    if let Some(TestResult::True) | Some(TestResult::Ignore) | None = result {
+                        let mut vs2 = vs.clone();
+                        if let Some(TestResult::True) | None = result {
+                            vs2.insert(node.index);
+                        }
+
+                        match node.right {
+                            Child::Next(ref mut r) => q.push_back((r, depth + 1, vs2, t)),
+
+                            ref mut right @ Child::Unknown => {
+                                limit.get_or_insert(depth);
+
+                                vs2.insert(node.index); //second time for the ignore case.
+                                vs2.extend(self.valid_nodes.iter());
+                                let bisect = associated_value_bisection(
+                                    &self.graph,
+                                    &vs2,
+                                    &self.ignored_nodes,
+                                    t,
+                                );
+
+                                changed = true;
+                                *right = bisect.into();
+                            }
+
+                            Child::End => {}
+                        }
+                    }
+
+                    if let Some(TestResult::False) | None = result {
+                        match node.left {
+                            Child::Next(ref mut l) => q.push_back((l, depth + 1, vs.clone(), node.index)),
+
+                            ref mut left @ Child::Unknown => {
+                                limit.get_or_insert(depth);
+
+                                vs.extend(self.valid_nodes.iter());
+                                let bisect = associated_value_bisection(
+                                    &self.graph,
+                                    &vs,
+                                    &self.ignored_nodes,
+                                    node.index,
+                                );
+
+                                changed = true;
+                                *left = bisect.into();
+                            }
+
+                            Child::End => {}
+                        }
                     }
                 }
             }
         }
+        changed
+    }
 
-        if let Some(TestResult::False) | None = result {
-            match node.left {
-                Some(ref mut l) => stack.push((l, vs, node.index)),
-                ref mut left @ None => {
-                    vs.extend(valid_nodes.iter());
-                    let bisect = associated_value_bisection(graph, &vs, ignored_nodes, node.index);
+    fn extract_jobs(&self) -> HashSet<NodeIndex> {
+        if let Child::Next(root) = &self.bisection_tree {
+            let mut jobs = HashSet::new();
+            let mut limit = None;
+            let mut q: VecDeque<(&Box<Node>, usize)> = VecDeque::new();
+            q.push_back((root, 0));
 
-                    if let Some(bisect_point) = bisect {
-                        jobs.insert(bisect_point);
-                        *left = Node::new(bisect_point).into();
+            while let Some((node, depth)) = q.pop_front() {
+                if let Some(lim) = limit {
+                    if lim < depth {
+                        break;
+                    }
+                }
+
+                if self.is_unprocessed(node.index) {
+                    limit.get_or_insert(depth);
+                    jobs.insert(node.index);
+                    continue;
+                }
+
+                let result = self.results.get(&node.index);
+                if let Some(TestResult::True) | Some(TestResult::Ignore) | None = result {
+                    if let Child::Next(ref r) = node.right {
+                        q.push_back((r, depth + 1));
+                    }
+                }
+
+                if let Some(TestResult::False) | None = result {
+                    if let Child::Next(ref l) = node.left {
+                        q.push_back((l, depth + 1));
                     }
                 }
             }
+            jobs
+        } else {
+            HashSet::default()
         }
     }
 
-    VecDeque::from_iter(jobs.into_iter())
+    fn is_unprocessed(&self, index: NodeIndex) -> bool {
+        !self.results.contains_key(&index) && !self.jobs_await.contains(&index)
+    }
 }
 
 impl RegressionAlgorithm for GitBisect {
     fn add_result(&mut self, commit: String, result: super::TestResult) {
         self.results.insert(self.graph.index(&commit), result);
 
-        let mut current = self.bisection_tree.take();
-        while current.is_some() {
-            let c = current.as_ref().unwrap();
+        //temporarily move bisection_tree into current.
+        //Child::Unknown is only a placeholder, we'll override it later again.
+        let mut current = std::mem::replace(&mut self.bisection_tree, Child::Unknown);
+        while let Child::Next(ref c) = current {
             match self.results.get(&c.index) {
                 Some(TestResult::True) => {
                     self.valid_nodes.insert(c.index);
@@ -212,40 +302,40 @@ impl RegressionAlgorithm for GitBisect {
         }
 
         self.bisection_tree = current;
-        //todo: remove all jobs that are no longer relevant. (+ add them to the interrupt list)
-        if self.bisection_tree.is_none() {
-            self.bisection_tree = new_bisection_tree(
+        self.jobs = VecDeque::new();
+        //todo: (+ add them to the interrupt list)
+
+        if let Child::Unknown = self.bisection_tree {
+            self.bisection_tree = new_root(
                 &self.graph,
-                &self.valid_nodes,
-                &self.ignored_nodes,
-                self.current_target,
+                &self.results,
+                &mut self.valid_nodes,
+                &mut self.ignored_nodes,
+                &mut self.current_target,
             )
-            .map(Box::new);
-            self.jobs = VecDeque::new();
-            if let Some(node) = &self.bisection_tree {
-                self.jobs.push_back(node.index);
-            }
+            .into();
         }
     }
 
     fn next_job(&mut self, capacity: u32, _expected_capacity: u32) -> super::AlgorithmResponse {
         if self.jobs.is_empty() {
-            //We first calculate the number of jobs we will have in the next step. If the number is higher than our capacity,
-            //we will not continue and will not calculate the bisection point (because this operation is to expensive).
-            //There are some cases, where number_of_jobs is higher than the actual number of bisection points we will find.
-            //So sometimes we will still wait, although we could already continue.
-            //If we continue, we calculate the bisection points and will augment the tree with them.
-            self.jobs = generate_new_jobs(
-                &mut self.bisection_tree,
-                &self.results,
-                capacity as usize,
-                &self.graph,
-                self.current_target,
-                &self.valid_nodes,
-                &self.ignored_nodes,
-            );
+            //First look if there are any jobs left in the tree.
+            let mut jobs = VecDeque::from_iter(self.extract_jobs().into_iter());
+
+            //Otherwise try to extend the tree and collect the new jobs
+            while jobs.is_empty() {
+                let changed = self.extend_speculation_tree();
+                jobs = VecDeque::from_iter(self.extract_jobs().into_iter());
+
+                if !changed {
+                    break;
+                }
+            }
+
+            if (capacity as usize) >= jobs.len() {
+                self.jobs = jobs;
+            }
         }
-        //println!("current jobs {:?}", self.jobs.iter().map(|x| self.graph.node_from_index(*x)).collect::<Vec<_>>());
 
         match (self.jobs.pop_front(), self.jobs_await.is_empty()) {
             (Some(job), _) => {
@@ -263,12 +353,16 @@ impl RegressionAlgorithm for GitBisect {
     }
 
     fn done(&self) -> bool {
-        self.bisection_tree.is_none()
+        if let Child::End = self.bisection_tree {
+            true
+        } else {
+            false
+        }
     }
 
     fn results(&self) -> Vec<super::RegressionPoint> {
         vec![RegressionPoint {
-            target: self.graph.node_from_index(self.target),
+            target: self.graph.node_from_index(self.original_target),
             regression_point: self.graph.node_from_index(self.current_target),
         }]
     }
