@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use daggy::{NodeIndex, Walker};
 
-use crate::graph::Adag;
+use crate::{graph::Adag, log};
+
+use self::bisection_tree::*;
 
 use super::{RegressionAlgorithm, RegressionPoint, TestResult};
 
@@ -17,92 +19,7 @@ pub struct GitBisect {
     interrupts: HashSet<String>,
     original_target: NodeIndex,
     current_target: NodeIndex,
-    _log_path: Option<std::path::PathBuf>,
-}
-
-type BisectionTree = Child<Node>;
-
-fn new_root(
-    graph: &Adag<String, ()>,
-    results: &HashMap<NodeIndex, TestResult>,
-    valid_nodes: &mut HashSet<NodeIndex>,
-    ignored_nodes: &mut HashSet<NodeIndex>,
-    target: &mut NodeIndex,
-) -> Child<Node> {
-    let mut fictive_valids = valid_nodes.clone(); //fixme: bad! Might not work correctly
-
-    //Given the current results, we can calculate a new root
-    //That root might already have a result, so we have to repeat this process until
-    //we find a unevaluated root or we know that there is nothing left.
-    let root = loop {
-        let node = associated_value_bisection(graph, valid_nodes, &fictive_valids, *target);
-        match node {
-            None => break node,
-            Some(n) => match results.get(&n) {
-                Some(TestResult::True) => {
-                    valid_nodes.insert(n);
-                    fictive_valids.insert(n);
-                }
-                Some(TestResult::False) => {
-                    *target = n;
-                }
-                Some(TestResult::Ignore) => {
-                    fictive_valids.insert(n);
-                    ignored_nodes.insert(n);
-                }
-                None => break node,
-            },
-        }
-    };
-
-    root.into()
-}
-
-struct Node {
-    index: NodeIndex,
-    left: Child<Node>,
-    right: Child<Node>,
-}
-enum Child<T> {
-    Next(Box<T>),
-    Unknown,
-    End,
-}
-
-impl<T> Child<T> {
-    fn unwrap(self) -> Box<T> {
-        match self {
-            Child::Next(val) => val,
-            _ => {
-                panic!("called `Child::unwrap()` on a empty value");
-            }
-        }
-    }
-}
-
-impl Node {
-    fn new(index: NodeIndex) -> Self {
-        Node {
-            index,
-            left: Child::Unknown,
-            right: Child::Unknown,
-        }
-    }
-}
-
-impl From<Node> for Child<Node> {
-    fn from(node: Node) -> Self {
-        Child::Next(Box::new(node))
-    }
-}
-
-impl From<Option<NodeIndex>> for Child<Node> {
-    fn from(op: Option<NodeIndex>) -> Self {
-        match op {
-            Some(index) => Node::new(index).into(),
-            None => Child::End,
-        }
-    }
+    log_path: Option<std::path::PathBuf>,
 }
 
 impl GitBisect {
@@ -131,6 +48,19 @@ impl GitBisect {
             graph.graph.node_count()
         );
 
+        let bisect_log_dir = log_path.map(|p| log::add_dir("bisect", &p));
+        if let Some(log_dir) = &bisect_log_dir {
+            log::create_file("summary", log_dir);
+            log::write_to_file(
+                &format!(
+                    "Init Bisect:\nSpeculation Tree:\n{}\n---\n\n",
+                    tree.display(&graph)
+                ),
+                &summary_log_file(log_dir),
+            )
+
+        }
+
         GitBisect {
             graph,
             valid_nodes: sources_index,
@@ -142,7 +72,7 @@ impl GitBisect {
             jobs: VecDeque::new(),
             interrupts: HashSet::new(),
             current_target: target_index,
-            _log_path: log_path,
+            log_path: bisect_log_dir,
         }
     }
 
@@ -280,9 +210,47 @@ impl GitBisect {
     }
 }
 
+fn new_root(
+    graph: &Adag<String, ()>,
+    results: &HashMap<NodeIndex, TestResult>,
+    valid_nodes: &mut HashSet<NodeIndex>,
+    ignored_nodes: &mut HashSet<NodeIndex>,
+    target: &mut NodeIndex,
+) -> Child<Node> {
+    let mut fictive_valids = valid_nodes.clone(); //fixme: bad! Might not work correctly
+
+    //Given the current results, we can calculate a new root
+    //That root might already have a result, so we have to repeat this process until
+    //we find a unevaluated root or we know that there is nothing left.
+    let root = loop {
+        let node = associated_value_bisection(graph, valid_nodes, &fictive_valids, *target);
+        match node {
+            None => break node,
+            Some(n) => match results.get(&n) {
+                Some(TestResult::True) => {
+                    valid_nodes.insert(n);
+                    fictive_valids.insert(n);
+                }
+                Some(TestResult::False) => {
+                    *target = n;
+                }
+                Some(TestResult::Ignore) => {
+                    fictive_valids.insert(n);
+                    ignored_nodes.insert(n);
+                }
+                None => break node,
+            },
+        }
+    };
+
+    root.into()
+}
+
 impl RegressionAlgorithm for GitBisect {
     fn add_result(&mut self, commit: String, result: super::TestResult) {
-        self.results.insert(self.graph.index(&commit), result);
+        self.results
+            .insert(self.graph.index(&commit), result.clone());
+        self.jobs_await.remove(&self.graph.index(&commit));
 
         //temporarily move bisection_tree into current.
         //Child::Unknown is only a placeholder, we'll override it later again.
@@ -328,9 +296,26 @@ impl RegressionAlgorithm for GitBisect {
                 &mut self.valid_nodes,
                 &mut self.ignored_nodes,
                 &mut self.current_target,
-            )
-            .into();
+            );
         }
+
+        //Logging
+        if let Some(log_path) = &self.log_path {
+            let in_progress = self
+                .jobs_await
+                .iter()
+                .map(|i| self.graph.node_from_index(*i))
+                .collect::<Vec<_>>();
+            let interrupting = self.interrupts.clone();
+            log::write_to_file(
+                &format!(
+                    "Add Result: {} {}\nIn progress: {:?}\nInterrupting: {:?}\nSpeculation Tree:\n{}\n---\n\n",
+                    commit, result, in_progress, interrupting, self.bisection_tree.display(&self.graph)
+                ),
+                &summary_log_file(log_path),
+            )
+        }
+        //
     }
 
     fn next_job(&mut self, capacity: u32, _expected_capacity: u32) -> super::AlgorithmResponse {
@@ -355,6 +340,24 @@ impl RegressionAlgorithm for GitBisect {
 
         match (self.jobs.pop_front(), self.jobs_await.is_empty()) {
             (Some(job), _) => {
+                //Logging
+                if let Some(log_path) = &self.log_path {
+                    let in_progress = self
+                        .jobs_await
+                        .iter()
+                        .map(|i| self.graph.node_from_index(*i))
+                        .collect::<Vec<_>>();
+                    let interrupting = self.interrupts.clone();
+                    log::write_to_file(
+                        &format!(
+                            "New Job: {} for capacity {}\nIn progress: {:?}\nInterrupting: {:?}\nSpeculation Tree:\n{}\n---\n\n",
+                            self.graph.node_from_index(job), capacity, in_progress, interrupting, self.bisection_tree.display(&self.graph)
+                        ),
+                        &summary_log_file(log_path),
+                    )
+                }
+                //
+
                 self.jobs_await.insert(job);
                 let hash = self.graph.node_from_index(job);
                 super::AlgorithmResponse::Job(hash)
@@ -370,11 +373,7 @@ impl RegressionAlgorithm for GitBisect {
     }
 
     fn done(&self) -> bool {
-        if let Child::End = self.bisection_tree {
-            true
-        } else {
-            false
-        }
+        matches!(self.bisection_tree, Child::End)
     }
 
     fn results(&self) -> Vec<super::RegressionPoint> {
@@ -383,6 +382,10 @@ impl RegressionAlgorithm for GitBisect {
             regression_point: self.graph.node_from_index(self.current_target),
         }]
     }
+}
+
+pub fn summary_log_file(path: &std::path::Path) -> std::path::PathBuf {
+    path.join("summary")
 }
 
 pub fn associated_value_bisection(
@@ -592,4 +595,89 @@ fn get_subgraph(
     }
 
     (relevant, start_points)
+}
+
+mod bisection_tree {
+    use daggy::NodeIndex;
+
+    use crate::graph::Adag;
+    pub(crate) type BisectionTree = Child<Node>;
+
+    pub(crate) struct Node {
+        pub index: NodeIndex,
+        pub left: Child<Node>,
+        pub right: Child<Node>,
+    }
+    pub(crate) enum Child<T> {
+        Next(Box<T>),
+        Unknown,
+        End,
+    }
+
+    impl<T> Child<T> {
+        pub(crate) fn unwrap(self) -> Box<T> {
+            match self {
+                Child::Next(val) => val,
+                _ => {
+                    panic!("called `Child::unwrap()` on a empty value");
+                }
+            }
+        }
+    }
+
+    impl Node {
+        fn new(index: NodeIndex) -> Self {
+            Node {
+                index,
+                left: Child::Unknown,
+                right: Child::Unknown,
+            }
+        }
+    }
+
+    impl From<Node> for Child<Node> {
+        fn from(node: Node) -> Self {
+            Child::Next(Box::new(node))
+        }
+    }
+
+    impl From<Option<NodeIndex>> for Child<Node> {
+        fn from(op: Option<NodeIndex>) -> Self {
+            match op {
+                Some(index) => Node::new(index).into(),
+                None => Child::End,
+            }
+        }
+    }
+
+    impl BisectionTree {
+        pub(crate) fn display(&self, context: &Adag<String, ()>) -> String {
+            let mut out = String::from("");
+            let mut stack = Vec::<_>::new();
+            stack.push((self, 0, None));
+
+            while let Some((current, level, dir)) = stack.pop() {
+                let a = "   |".repeat(level);
+                let b = match dir {
+                    Some(true) => "+++",
+                    Some(false) => "---",
+                    None => "",
+                };
+
+                let c = match current {
+                    Child::Next(n) => {
+                        stack.push((&n.left, level + 1, Some(false)));
+                        stack.push((&n.right, level + 1, Some(true)));
+                        context.node_from_index(n.index)
+                    }
+                    Child::Unknown => String::from("unknown"),
+                    Child::End => String::from("end"),
+                };
+
+                out.push_str(&format!("{}{}{}\n", a, b, c));
+            }
+
+            out
+        }
+    }
 }
