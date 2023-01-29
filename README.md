@@ -19,7 +19,7 @@ crs <REPOSITORY> <TEST> [OPTIONS] --source <SOURCE> --target <TARGET>
 |--target | -t | Commit hashes of all targets. Multiple hashes are separated with ',' and no space: "\<has1\>,\<hash2\>" | yes | - |
 |--processes | -p | Number of threads that can be spawned by *crs*. | no | 1 |
 |--worktree-location |  | By default *crs* will spawn all worktrees in a subdirectory of the source repository. You can change that location by specifying another path here.  | no |  |
-|--search-mode |   | *crs* implements multiple search modes. List of supported search modes: exrpa-long-bin, exrpa-long-lin, exrpa-long-mul, exrpa-short-bin, exrpa-short-lin, exrpa-short-mul | no | rpa-long-bin |
+|--search-mode |   | *crs* implements multiple search modes. List of supported search modes: exrpa-long-bin, exrpa-long-lin, exrpa-long-mul, exrpa-short-bin, exrpa-short-lin, exrpa-short-mul, bisect | no | rpa-long-bin |
 |--interrupt| | *crs* will kill running processes, when they are no longer relevant. This might speed up the search, but is only possible if the test script can be interrupted without additional clean up steps. | no | false |
 |--log| -l | Takes a path as an argument. Creates directory and writes files with all stdout and stderr output of the processes and a summary of all queries (time, result, ...) | no | |
 |--no-propagate |   | Disables propagation of regression points.  | no | false |
