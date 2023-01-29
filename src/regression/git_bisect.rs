@@ -54,7 +54,7 @@ impl GitBisect {
             log::write_to_file(
                 &format!(
                     "Init Bisect:\nSpeculation Tree:\n{}\n---\n\n",
-                    tree.display(&graph)
+                    tree.display(&graph, &results)
                 ),
                 &summary_log_file(log_dir),
             )
@@ -310,7 +310,7 @@ impl RegressionAlgorithm for GitBisect {
             log::write_to_file(
                 &format!(
                     "Add Result: {} {}\nIn progress: {:?}\nInterrupting: {:?}\nSpeculation Tree:\n{}\n---\n\n",
-                    commit, result, in_progress, interrupting, self.bisection_tree.display(&self.graph)
+                    commit, result, in_progress, interrupting, self.bisection_tree.display(&self.graph, &self.results)
                 ),
                 &summary_log_file(log_path),
             )
@@ -351,7 +351,7 @@ impl RegressionAlgorithm for GitBisect {
                     log::write_to_file(
                         &format!(
                             "New Job: {} for capacity {}\nIn progress: {:?}\nInterrupting: {:?}\nSpeculation Tree:\n{}\n---\n\n",
-                            self.graph.node_from_index(job), capacity, in_progress, interrupting, self.bisection_tree.display(&self.graph)
+                            self.graph.node_from_index(job), capacity, in_progress, interrupting, self.bisection_tree.display(&self.graph, &self.results)
                         ),
                         &summary_log_file(log_path),
                     )
@@ -598,9 +598,11 @@ fn get_subgraph(
 }
 
 mod bisection_tree {
+    use std::collections::HashMap;
+
     use daggy::NodeIndex;
 
-    use crate::graph::Adag;
+    use crate::{graph::Adag, regression::TestResult};
     pub(crate) type BisectionTree = Child<Node>;
 
     pub(crate) struct Node {
@@ -651,7 +653,7 @@ mod bisection_tree {
     }
 
     impl BisectionTree {
-        pub(crate) fn display(&self, context: &Adag<String, ()>) -> String {
+        pub(crate) fn display(&self, context: &Adag<String, ()>, results: &HashMap<NodeIndex, TestResult>) -> String {
             let mut out = String::from("");
             let mut stack = Vec::<_>::new();
             stack.push((self, 0, None));
@@ -668,13 +670,18 @@ mod bisection_tree {
                     Child::Next(n) => {
                         stack.push((&n.left, level + 1, Some(false)));
                         stack.push((&n.right, level + 1, Some(true)));
-                        context.node_from_index(n.index)
+                        let hash = context.node_from_index(n.index);
+                        match results.get(&n.index) {
+                            Some(res) => format!("{} ({})", hash, res),
+                            None => hash,
+                        }
+                        
                     }
                     Child::Unknown => String::from("unknown"),
                     Child::End => String::from("end"),
                 };
 
-                out.push_str(&format!("{}{}{}\n", a, b, c));
+                out.push_str(&format!("{}{} {}\n", a, b, c));
             }
 
             out
